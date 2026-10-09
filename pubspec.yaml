@@ -1,0 +1,91 @@
+name: gymtrx
+description: "GYMTRX - a quiet gym logbook"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.8
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_riverpod: ^3.3.2
+  drift: ^2.31.0
+  drift_flutter: ^0.2.8
+  shared_preferences: ^2.5.5
+  intl: ^0.20.3
+  animations: ^2.2.0
+  flutter_animate: ^4.5.2
+  fl_chart: ^1.2.0
+  phosphor_flutter: ^2.1.0
+  path_drawing: ^1.0.1
+  local_auth: ^3.0.2
+  home_widget: ^0.10.0
+  quick_actions: ^1.1.1
+  share_plus: ^13.3.1
+  file_picker: ^13.1.0
+  path_provider: ^2.1.6
+  package_info_plus: ^10.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  drift_dev: ^2.31.0
+  build_runner: ^2.15.1
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.7
+  shared_preferences_platform_interface: ^2.4.2
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/brand/
+    - assets/fonts/OFL.txt
+
+  # Variable fonts: one file per family, registered at several weights so the
+  # engine never synthesises bold. Actual weight comes from the `wght` axis
+  # (see lib/core/theme/typography.dart).
+  fonts:
+    - family: Geist
+      fonts:
+        - asset: assets/fonts/Geist-Variable.ttf
+          weight: 400
+        - asset: assets/fonts/Geist-Variable.ttf
+          weight: 500
+        - asset: assets/fonts/Geist-Variable.ttf
+          weight: 600
+        - asset: assets/fonts/Geist-Variable.ttf
+          weight: 700
+    - family: GeistMono
+      fonts:
+        - asset: assets/fonts/GeistMono-Variable.ttf
+          weight: 400
+        - asset: assets/fonts/GeistMono-Variable.ttf
+          weight: 500
+        - asset: assets/fonts/GeistMono-Variable.ttf
+          weight: 600
+
+# Regenerate with: python tool/generate_icons.py && dart run flutter_launcher_icons && dart run flutter_native_splash:create
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/brand/icon.png
+  min_sdk_android: 26
+  adaptive_icon_background: "#0A0A0B"
+  adaptive_icon_foreground: assets/brand/icon_foreground.png
+  adaptive_icon_monochrome: assets/brand/icon_monochrome.png
+
+flutter_native_splash:
+  color: "#0A0A0B"
+  image: assets/brand/splash_legacy.png
+  android_12:
+    color: "#0A0A0B"
+    image: assets/brand/splash.png
+    icon_background_color: "#0A0A0B"
+  ios: false
+  web: false
