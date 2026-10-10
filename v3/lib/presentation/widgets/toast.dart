@@ -1,0 +1,144 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../core/motion/motion.dart';
+import '../../core/theme/palette.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/theme/typography.dart';
+import 'pressable.dart';
+import 'surface.dart';
+
+@immutable
+class ToastData {
+  const ToastData(this.id, this.message, this.actionLabel, this.onAction);
+
+  final int id;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+}
+
+/// One toast at a time, floating above the nav bar. Used for "Logged · Undo"
+/// and "Deleted · Undo": undo replaces confirmation dialogs.
+abstract final class Toasts {
+  static final ValueNotifier<ToastData?> current = ValueNotifier(null);
+  static Timer? _timer;
+  static int _seq = 0;
+
+  static void show(
+    String message, {
+    String? actionLabel,
+    VoidCallback? onAction,
+    Duration duration = const Duration(seconds: 4),
+  }) {
+    _timer?.cancel();
+    current.value = ToastData(++_seq, message, actionLabel, onAction);
+    _timer = Timer(duration, hide);
+  }
+
+  static void hide() {
+    _timer?.cancel();
+    current.value = null;
+  }
+}
+
+/// Hosts toasts above everything (sheets included). Lives in MaterialApp.builder.
+class ToastHost extends StatelessWidget {
+  const ToastHost({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    // While typing, the toast moves to the top so it never covers the field
+    // being edited (or a record badge popping next to it).
+    final typing = mq.viewInsets.bottom > 0;
+    // Sits above the Navigator, so it brings its own Material for text styling.
+    return Stack(
+      children: [
+        child,
+        Positioned(
+          left: GtSpace.lg,
+          right: GtSpace.lg,
+          top: typing ? mq.viewPadding.top + GtSpace.sm : null,
+          bottom: typing ? null : mq.viewPadding.bottom + 92,
+          child: Material(
+            type: MaterialType.transparency,
+            child: ValueListenableBuilder<ToastData?>(
+              valueListenable: Toasts.current,
+              builder: (context, data, _) => AnimatedSwitcher(
+                duration: GtMotion.of(context, const Duration(milliseconds: 360)),
+                reverseDuration: GtMotion.of(context, GtMotion.medium),
+                switchInCurve: GtMotion.emphasized,
+                switchOutCurve: GtMotion.accelerate,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween(begin: Offset(0, typing ? -0.35 : 0.35), end: Offset.zero).animate(animation),
+                    child: ScaleTransition(scale: Tween(begin: 0.94, end: 1.0).animate(animation), child: child),
+                  ),
+                ),
+                child: data == null ? const SizedBox.shrink() : _ToastPill(key: ValueKey(data.id), data: data),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ToastPill extends StatelessWidget {
+  const _ToastPill({super.key, required this.data});
+
+  final ToastData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Pressable(
+        onTap: Toasts.hide,
+        haptic: PressHaptic.none,
+        scale: 0.98,
+        child: Glass(
+          radius: GtRadius.lg,
+          tint: const Color(0xE626262A),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(GtSpace.xl, GtSpace.sm, GtSpace.sm, GtSpace.sm),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Text(data.message, style: GtText.label.sized(14), maxLines: 2),
+                  ),
+                ),
+                if (data.actionLabel != null) ...[
+                  const SizedBox(width: GtSpace.md),
+                  Pressable(
+                    onTap: () {
+                      Toasts.hide();
+                      data.onAction?.call();
+                    },
+                    scale: 0.92,
+                    child: Container(
+                      height: 36,
+                      padding: const EdgeInsets.symmetric(horizontal: GtSpace.md),
+                      alignment: Alignment.center,
+                      decoration: ShapeDecoration(color: context.gt.accentMuted, shape: squircle(18)),
+                      child: Text(data.actionLabel!, style: GtText.label.sized(14).weight(600).colored(context.accent)),
+                    ),
+                  ),
+                ] else
+                  const SizedBox(width: GtSpace.md),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: photos stay out of the cloud backup (25 MB quota) but move
+     with the phone in a device-to-device transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="app_flutter/photos/" />
+    </cloud-backup>
+</data-extraction-rules>

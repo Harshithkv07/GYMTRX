@@ -1,0 +1,59 @@
+import 'dart:async';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../data/services/notification_service.dart';
+import '../reminder_planner.dart';
+import 'data_providers.dart';
+import 'progress_providers.dart';
+import 'settings_provider.dart';
+
+/// Keeps scheduled reminders in step with the log: every session, setting
+/// change or new day re-plans them. Watch this provider once (the shell
+/// does) to start it.
+final reminderSyncProvider = Provider<void>((ref) {
+  Timer? debounce;
+  ref.onDispose(() => debounce?.cancel());
+
+  void schedule() {
+    debounce?.cancel();
+    debounce = Timer(const Duration(milliseconds: 800), () {
+      final entries = ref.read(summariesProvider).value;
+      if (entries == null) return;
+      final s = ref.read(settingsProvider);
+      final planned = planReminders(
+        now: DateTime.now(),
+        prefs: (
+          inactive: s.remindInactive,
+          inactiveDays: s.inactiveDays,
+          streak: s.remindStreak,
+          streakOffset: s.streakRemindOffset,
+          minutes: s.reminderMinutes,
+          since: s.remindersSince,
+        ),
+        // Newest first.
+        lastSessionDay: entries.isEmpty ? null : entries.first.dayKey,
+        streak: ref.read(streakProvider),
+        goalFor: ref.read(weeklyGoalForProvider),
+      );
+      NotificationService.instance.sync(planned);
+    });
+  }
+
+  ref.listen(summariesProvider, (_, _) => schedule(), fireImmediately: true);
+  ref.listen(streakProvider, (_, _) => schedule());
+  ref.listen(logicalTodayProvider, (_, _) => schedule());
+  ref.listen(
+    settingsProvider.select(
+      (s) => (
+        s.remindInactive,
+        s.inactiveDays,
+        s.remindStreak,
+        s.streakRemindOffset,
+        s.reminderMinutes,
+        s.remindersSince,
+      ),
+    ),
+    (_, _) => schedule(),
+  );
+});

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon for reminders: a white dumbbell (Android tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,11h12v2h-12z M3.5,7h2.5v10h-2.5z M18,7h2.5v10h-2.5z M1.5,9.5h2v5h-2z M20.5,9.5h2v5h-2z" />
+</vector>

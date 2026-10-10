@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto Backup (API 30 and below). Progress photos would blow the
+     25 MB quota and stop the database being backed up, so they're left out;
+     GYMTRX's own ZIP backup includes them. -->
+<full-backup-content>
+    <exclude domain="root" path="app_flutter/photos/" />
+</full-backup-content>
