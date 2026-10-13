@@ -8,6 +8,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../core/utils/day_key.dart';
 import '../../core/utils/formatters.dart';
+import '../tour/tour_target.dart';
 import '../widgets/pressable.dart';
 import '../widgets/rolling_number.dart';
 import '../widgets/surface.dart';
@@ -114,12 +115,15 @@ class CalendarHeaderDelegate extends SliverPersistentHeaderDelegate {
                 child: isCurrentMonth ? const SizedBox.shrink() : _TodayPill(onTap: onToday),
               ),
               const SizedBox(width: GtSpace.xs),
-              GtIconButton(
-                icon: GtIcons.settings,
-                onTap: onSettings,
-                color: Colors.transparent,
-                iconSize: 22,
-                semanticLabel: 'Settings',
+              TourTarget(
+                spot: TourSpot.settings,
+                child: GtIconButton(
+                  icon: GtIcons.settings,
+                  onTap: onSettings,
+                  color: Colors.transparent,
+                  iconSize: 22,
+                  semanticLabel: 'Settings',
+                ),
               ),
             ],
           ),
@@ -169,10 +173,8 @@ class _LargeTitle extends StatelessWidget {
                 duration: GtMotion.of(context, const Duration(milliseconds: 380)),
                 switchInCurve: GtMotion.emphasized,
                 switchOutCurve: GtMotion.accelerate,
-                layoutBuilder: (current, previous) => Stack(
-                  alignment: Alignment.bottomLeft,
-                  children: [...previous, ?current],
-                ),
+                layoutBuilder: (current, previous) =>
+                    Stack(alignment: Alignment.bottomLeft, children: [...previous, ?current]),
                 transitionBuilder: (child, a) => FadeTransition(
                   opacity: a,
                   child: SlideTransition(
@@ -180,12 +182,7 @@ class _LargeTitle extends StatelessWidget {
                     child: child,
                   ),
                 ),
-                child: Text(
-                  Fmt.monthName(month.month),
-                  key: ValueKey(month),
-                  style: GtText.display,
-                  maxLines: 1,
-                ),
+                child: Text(Fmt.monthName(month.month), key: ValueKey(month), style: GtText.display, maxLines: 1),
               ),
             ),
             Padding(

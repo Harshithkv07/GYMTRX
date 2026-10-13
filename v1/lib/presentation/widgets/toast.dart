@@ -52,7 +52,9 @@ class ToastHost extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
-    final bottom = (mq.viewInsets.bottom > 0 ? mq.viewInsets.bottom : mq.viewPadding.bottom) + 92;
+    // While typing, the toast moves to the top so it never covers the field
+    // being edited (or a record badge popping next to it).
+    final typing = mq.viewInsets.bottom > 0;
     // Sits above the Navigator, so it brings its own Material for text styling.
     return Stack(
       children: [
@@ -60,7 +62,8 @@ class ToastHost extends StatelessWidget {
         Positioned(
           left: GtSpace.lg,
           right: GtSpace.lg,
-          bottom: bottom,
+          top: typing ? mq.viewPadding.top + GtSpace.sm : null,
+          bottom: typing ? null : mq.viewPadding.bottom + 92,
           child: Material(
             type: MaterialType.transparency,
             child: ValueListenableBuilder<ToastData?>(
@@ -73,7 +76,7 @@ class ToastHost extends StatelessWidget {
                 transitionBuilder: (child, animation) => FadeTransition(
                   opacity: animation,
                   child: SlideTransition(
-                    position: Tween(begin: const Offset(0, 0.35), end: Offset.zero).animate(animation),
+                    position: Tween(begin: Offset(0, typing ? -0.35 : 0.35), end: Offset.zero).animate(animation),
                     child: ScaleTransition(scale: Tween(begin: 0.94, end: 1.0).animate(animation), child: child),
                   ),
                 ),

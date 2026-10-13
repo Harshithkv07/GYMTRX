@@ -23,4 +23,11 @@ abstract final class Haptics {
   static void heavy() {
     if (enabled) HapticFeedback.heavyImpact();
   }
+
+  /// A new personal record or a reached goal: a double thump.
+  static void celebrate() {
+    if (!enabled) return;
+    HapticFeedback.heavyImpact();
+    Future.delayed(const Duration(milliseconds: 90), HapticFeedback.heavyImpact);
+  }
 }

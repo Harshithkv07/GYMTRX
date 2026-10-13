@@ -35,6 +35,10 @@ abstract final class DayKeys {
 
   /// ISO weekday, 1 = Monday … 7 = Sunday.
   static int weekday(int key) => toDate(key).weekday;
+
+  /// First day of the week containing [key], for a week starting on ISO
+  /// weekday [weekStart].
+  static int weekStartOf(int key, int weekStart) => addDays(key, -((weekday(key) - weekStart + 7) % 7));
 }
 
 /// A calendar month, used to page the calendar.

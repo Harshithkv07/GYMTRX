@@ -18,8 +18,20 @@ abstract final class GtColors {
 
   static const onAccent = Color(0xFF0A0A0B);
 
-  /// Used only for destructive actions.
+  /// Destructive actions. Missed program days use [missed].
   static const danger = Color(0xFFFF5C5C);
+
+  /// Personal records and reached goals.
+  static const gold = Color(0xFFFFC94D);
+  static const goldMuted = Color(0x29FFC94D); // 16%
+
+  /// The streak flame.
+  static const flame = Color(0xFFFF9F1C);
+  static const flameMuted = Color(0x29FF9F1C); // 16%
+
+  /// Program days that passed without a session.
+  static const missed = Color(0xFFFF4D4F);
+  static const missedMuted = Color(0x29FF4D4F); // 16%
 }
 
 /// 4-pt spacing grid.

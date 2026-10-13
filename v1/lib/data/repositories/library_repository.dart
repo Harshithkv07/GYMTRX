@@ -9,17 +9,15 @@ class LibraryRepository {
 
   final AppDatabase db;
 
-  Stream<List<MuscleGroup>> watchGroups() =>
-      (db.select(db.muscleGroups)..orderBy([(g) => OrderingTerm.asc(g.sortOrder), (g) => OrderingTerm.asc(g.id)]))
-          .watch();
+  Stream<List<MuscleGroup>> watchGroups() => (db.select(
+    db.muscleGroups,
+  )..orderBy([(g) => OrderingTerm.asc(g.sortOrder), (g) => OrderingTerm.asc(g.id)])).watch();
 
   Stream<List<Exercise>> watchExercises() =>
       (db.select(db.exercises)..orderBy([(e) => OrderingTerm.asc(e.name)])).watch();
 
   Future<int> addGroup(String name) async {
-    final next = await db
-        .customSelect('SELECT COALESCE(MAX(sort_order), -1) + 1 AS p FROM muscle_groups')
-        .getSingle();
+    final next = await db.customSelect('SELECT COALESCE(MAX(sort_order), -1) + 1 AS p FROM muscle_groups').getSingle();
     return db
         .into(db.muscleGroups)
         .insert(
@@ -31,11 +29,12 @@ class LibraryRepository {
         );
   }
 
-  Future<void> renameGroup(int id, String name) => (db.update(db.muscleGroups)..where((g) => g.id.equals(id)))
-      .write(MuscleGroupsCompanion(name: Value(name.trim())));
+  Future<void> renameGroup(int id, String name) => (db.update(
+    db.muscleGroups,
+  )..where((g) => g.id.equals(id))).write(MuscleGroupsCompanion(name: Value(name.trim())));
 
-  Future<void> setGroupHidden(int id, bool hidden) => (db.update(db.muscleGroups)..where((g) => g.id.equals(id)))
-      .write(MuscleGroupsCompanion(hidden: Value(hidden)));
+  Future<void> setGroupHidden(int id, bool hidden) =>
+      (db.update(db.muscleGroups)..where((g) => g.id.equals(id))).write(MuscleGroupsCompanion(hidden: Value(hidden)));
 
   Future<void> reorderGroups(List<int> idsInOrder) => db.batch((b) {
     for (var i = 0; i < idsInOrder.length; i++) {
@@ -43,7 +42,7 @@ class LibraryRepository {
     }
   });
 
-  Future<int> addExercise(String name, {int? groupId, ExerciseKind kind = ExerciseKind.strength}) => db
+  Future<int> addExercise(String name, {int? groupId, ExerciseKind kind = ExerciseKind.strength, String? guideId}) => db
       .into(db.exercises)
       .insert(
         ExercisesCompanion.insert(
@@ -51,8 +50,13 @@ class LibraryRepository {
           groupId: Value(groupId),
           kind: kind,
           isCustom: const Value(true),
+          guideId: Value(guideId),
         ),
       );
+
+  /// Points an exercise at an exercise guide entry; null unlinks it.
+  Future<void> linkGuide(int id, String? guideId) =>
+      (db.update(db.exercises)..where((e) => e.id.equals(id))).write(ExercisesCompanion(guideId: Value(guideId)));
 
   Future<void> updateExercise(int id, {String? name, Value<int?> groupId = const Value.absent(), ExerciseKind? kind}) =>
       (db.update(db.exercises)..where((e) => e.id.equals(id))).write(
@@ -63,6 +67,6 @@ class LibraryRepository {
         ),
       );
 
-  Future<void> setExerciseHidden(int id, bool hidden) => (db.update(db.exercises)..where((e) => e.id.equals(id)))
-      .write(ExercisesCompanion(hidden: Value(hidden)));
+  Future<void> setExerciseHidden(int id, bool hidden) =>
+      (db.update(db.exercises)..where((e) => e.id.equals(id))).write(ExercisesCompanion(hidden: Value(hidden)));
 }

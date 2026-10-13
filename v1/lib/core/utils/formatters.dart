@@ -5,6 +5,7 @@ import 'day_key.dart';
 /// Date and number formatting. Patterns put the day before the month
 /// ("Wed 8 Oct"), which reads naturally in India and the UK.
 abstract final class Fmt {
+  static final _thousands = NumberFormat.decimalPattern();
   static final _weekdayDayMonth = DateFormat('EEE d MMM');
   static final _dayMonth = DateFormat('d MMM');
   static final _dayMonthYear = DateFormat('d MMM yyyy');
@@ -84,4 +85,29 @@ abstract final class Fmt {
   }
 
   static String plural(int n, String one, [String? many]) => '$n ${n == 1 ? one : (many ?? '${one}s')}';
+
+  /// "6:00 PM" for minutes since midnight.
+  static String timeOfDay(int minutes) => DateFormat.jm().format(DateTime(2000, 1, 1, minutes ~/ 60, minutes % 60));
+
+  /// "Sat 11 Oct, 6:05 PM"
+  static String dateTime(DateTime at) => '${weekdayDayMonth(DayKeys.of(at))}, ${timeOfDay(at.hour * 60 + at.minute)}';
+
+  /// "6:05 PM"
+  static String time(DateTime at) => timeOfDay(at.hour * 60 + at.minute);
+
+  /// 8412 → "8,412".
+  static String thousands(int n) => _thousands.format(n);
+
+  /// 8412 → "8.4k", 950 → "950".
+  static String compact(int n) => n < 1000
+      ? '$n'
+      : n < 10000
+      ? '${(n / 1000).toStringAsFixed(1)}k'
+      : '${(n / 1000).round()}k';
+
+  /// "Monday" for ISO weekday 1..7.
+  static String isoWeekdayName(int isoWeekday) => _weekdayLong.format(DateTime(2024, 1, isoWeekday));
+
+  /// "Mon" for ISO weekday 1..7.
+  static String isoWeekdayShort(int isoWeekday) => _weekdayShort.format(DateTime(2024, 1, isoWeekday));
 }

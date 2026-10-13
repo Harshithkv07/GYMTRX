@@ -14,16 +14,19 @@ abstract final class DayPeek {
   static OverlayEntry? _entry;
   static final _key = GlobalKey<_PeekCardState>();
 
+  /// [entry] is null for a rest day; [lines] add steps, sleep or a holiday.
   static void show(
     BuildContext context, {
     required Rect anchor,
-    required EntrySummary entry,
+    required int dayKey,
+    required EntrySummary? entry,
     required Map<int, MuscleGroup> groups,
+    List<String> lines = const [],
   }) {
     _remove();
     final overlay = Overlay.of(context, rootOverlay: true);
     _entry = OverlayEntry(
-      builder: (_) => _PeekCard(key: _key, anchor: anchor, entry: entry, groups: groups),
+      builder: (_) => _PeekCard(key: _key, anchor: anchor, dayKey: dayKey, entry: entry, groups: groups, lines: lines),
     );
     overlay.insert(_entry!);
   }
@@ -44,11 +47,20 @@ abstract final class DayPeek {
 }
 
 class _PeekCard extends StatefulWidget {
-  const _PeekCard({super.key, required this.anchor, required this.entry, required this.groups});
+  const _PeekCard({
+    super.key,
+    required this.anchor,
+    required this.dayKey,
+    required this.entry,
+    required this.groups,
+    required this.lines,
+  });
 
   final Rect anchor;
-  final EntrySummary entry;
+  final int dayKey;
+  final EntrySummary? entry;
   final Map<int, MuscleGroup> groups;
+  final List<String> lines;
 
   @override
   State<_PeekCard> createState() => _PeekCardState();
@@ -75,8 +87,9 @@ class _PeekCardState extends State<_PeekCard> with SingleTickerProviderStateMixi
     final screen = MediaQuery.sizeOf(context);
     final left = (widget.anchor.center.dx - width / 2).clamp(GtSpace.lg, screen.width - width - GtSpace.lg);
     final above = widget.anchor.top > 220;
-    final label = groupLabel(widget.entry.groupIds, widget.groups);
-    final meta = entryMeta(widget.entry);
+    final entry = widget.entry;
+    final label = entry == null ? 'Rest day' : groupLabel(entry.groupIds, widget.groups);
+    final meta = entry == null ? '' : entryMeta(entry);
     final curved = CurvedAnimation(parent: _c, curve: GtMotion.emphasized, reverseCurve: Curves.easeIn);
 
     // Lives in the root overlay, outside any Material, so it brings its own.
@@ -104,10 +117,14 @@ class _PeekCardState extends State<_PeekCard> with SingleTickerProviderStateMixi
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(Fmt.weekdayDayMonth(widget.entry.dayKey).toUpperCase(), style: GtText.overline),
+                          Text(Fmt.weekdayDayMonth(widget.dayKey).toUpperCase(), style: GtText.overline),
                           const SizedBox(height: GtSpace.sm),
                           Text(label.isEmpty ? 'Logged' : label, style: GtText.titleSmall),
                           if (meta.isNotEmpty) ...[const SizedBox(height: 4), Text(meta, style: GtText.caption)],
+                          for (final line in widget.lines) ...[
+                            const SizedBox(height: 4),
+                            Text(line, style: GtText.caption),
+                          ],
                         ],
                       ),
                     ),

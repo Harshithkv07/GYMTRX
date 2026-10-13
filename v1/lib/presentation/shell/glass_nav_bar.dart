@@ -5,13 +5,20 @@ import '../../core/theme/icons.dart';
 import '../../core/theme/palette.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../tour/tour_target.dart';
 import '../widgets/pressable.dart';
 import '../widgets/surface.dart';
 
-/// Floating frosted pill with the two tabs, plus a detached accent ＋ button.
+/// One tab in [GlassNavBar].
+typedef NavTab = ({String label, IconData icon, IconData activeIcon});
+
+/// Floating frosted pill with the tabs the chosen features call for, plus a
+/// detached accent ＋ button. The active tab widens to show its label; the
+/// others are icons.
 class GlassNavBar extends StatelessWidget {
   const GlassNavBar({
     super.key,
+    required this.tabs,
     required this.index,
     required this.onChanged,
     required this.onAdd,
@@ -20,6 +27,11 @@ class GlassNavBar extends StatelessWidget {
 
   static const height = 64.0;
 
+  static const calendar = (label: 'Calendar', icon: GtIcons.calendar, activeIcon: GtIcons.calendarActive);
+  static const progress = (label: 'Progress', icon: GtIcons.progress, activeIcon: GtIcons.progressActive);
+  static const insights = (label: 'Insights', icon: GtIcons.insights, activeIcon: GtIcons.insightsActive);
+
+  final List<NavTab> tabs;
   final int index;
   final ValueChanged<int> onChanged;
   final VoidCallback onAdd;
@@ -30,61 +42,63 @@ class GlassNavBar extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Glass(
-            radius: height / 2,
-            child: SizedBox(
-              height: height,
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: LayoutBuilder(
-                  builder: (context, c) {
-                    final w = c.maxWidth / 2;
-                    return Stack(
-                      children: [
-                        AnimatedPositioned(
-                          duration: GtMotion.of(context, const Duration(milliseconds: 360)),
-                          curve: GtMotion.emphasized,
-                          left: index * w,
-                          top: 0,
-                          bottom: 0,
-                          width: w,
-                          child: DecoratedBox(
-                            decoration: ShapeDecoration(
-                              color: Colors.white.withValues(alpha: 0.08),
-                              shape: squircle((height - 12) / 2),
+          child: TourTarget(
+            spot: TourSpot.tabs,
+            child: Glass(
+              radius: height / 2,
+              child: SizedBox(
+                height: height,
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: LayoutBuilder(
+                    builder: (context, c) {
+                      // Inactive tabs take one unit, the active one two.
+                      final w = c.maxWidth / (tabs.length + 1);
+                      return Stack(
+                        children: [
+                          AnimatedPositioned(
+                            duration: GtMotion.of(context, const Duration(milliseconds: 360)),
+                            curve: GtMotion.emphasized,
+                            left: index * w,
+                            top: 0,
+                            bottom: 0,
+                            width: w * 2,
+                            child: DecoratedBox(
+                              decoration: ShapeDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                shape: squircle((height - 12) / 2),
+                              ),
                             ),
                           ),
-                        ),
-                        Positioned.fill(
-                          child: Row(
-                            children: [
-                              _NavItem(
-                                label: 'Calendar',
-                                icon: GtIcons.calendar,
-                                activeIcon: GtIcons.calendarActive,
-                                active: index == 0,
-                                onTap: () => onChanged(0),
-                              ),
-                              _NavItem(
-                                label: 'Insights',
-                                icon: GtIcons.insights,
-                                activeIcon: GtIcons.insightsActive,
-                                active: index == 1,
-                                onTap: () => onChanged(1),
-                              ),
-                            ],
+                          Positioned.fill(
+                            child: Row(
+                              children: [
+                                for (var i = 0; i < tabs.length; i++)
+                                  _NavItem(
+                                    label: tabs[i].label,
+                                    icon: tabs[i].icon,
+                                    activeIcon: tabs[i].activeIcon,
+                                    active: index == i,
+                                    width: index == i ? w * 2 : w,
+                                    onTap: () => onChanged(i),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    );
-                  },
+                        ],
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
           ),
         ),
         const SizedBox(width: GtSpace.md),
-        _AddButton(onTap: onAdd, onLongPress: onAddLongPress),
+        TourTarget(
+          spot: TourSpot.add,
+          child: _AddButton(onTap: onAdd, onLongPress: onAddLongPress),
+        ),
       ],
     );
   }
@@ -96,6 +110,7 @@ class _NavItem extends StatelessWidget {
     required this.icon,
     required this.activeIcon,
     required this.active,
+    required this.width,
     required this.onTap,
   });
 
@@ -103,37 +118,48 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final IconData activeIcon;
   final bool active;
+  final double width;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final color = active ? GtColors.text1 : GtColors.text2;
-    return Expanded(
+    final duration = GtMotion.of(context, const Duration(milliseconds: 360));
+    return AnimatedContainer(
+      duration: duration,
+      curve: GtMotion.emphasized,
+      width: width,
       child: Pressable(
         onTap: active ? null : onTap,
         haptic: PressHaptic.selection,
         scale: 0.94,
         semanticLabel: label,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AnimatedSwitcher(
-              duration: GtMotion.fast,
-              child: Icon(active ? activeIcon : icon, key: ValueKey(active), size: 20, color: color),
-            ),
-            const SizedBox(width: GtSpace.sm),
-            // Large system text shrinks the label to fit rather than overflowing the pill.
-            Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: AnimatedDefaultTextStyle(
-                  duration: GtMotion.fast,
-                  style: GtText.label.sized(14).weight(active ? 600 : 500).colored(color),
-                  child: Text(label, maxLines: 1),
+        child: ClipRect(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedSwitcher(
+                duration: GtMotion.fast,
+                child: Icon(active ? activeIcon : icon, key: ValueKey(active), size: 20, color: color),
+              ),
+              // Large system text shrinks the label to fit rather than overflowing the pill.
+              Flexible(
+                child: AnimatedSize(
+                  duration: duration,
+                  curve: GtMotion.emphasized,
+                  child: active
+                      ? Padding(
+                          padding: const EdgeInsets.only(left: GtSpace.sm),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(label, maxLines: 1, style: GtText.label.sized(14).weight(600).colored(color)),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

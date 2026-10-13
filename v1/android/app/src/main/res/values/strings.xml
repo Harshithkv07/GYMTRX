@@ -2,4 +2,12 @@
 <resources>
     <string name="widget_description">This month\'s gym days and your last session</string>
     <string name="widget_label">This month</string>
+    <string name="health_rationale_title">How GYMTRX uses Health Connect</string>
+    <string-array name="health_rationale_lines">
+        <item>GYMTRX reads your daily step count to show it on rest days in your calendar.</item>
+        <item>If you said you wear a watch, it also reads heart rate and active calories for the time you were at the gym, your sleep, workouts recorded by your watch app (to find when you trained) and weigh-ins from other apps such as a smart scale.</item>
+        <item>If you turn on sharing, it writes your gym sessions as strength-training workouts and the weigh-ins you type in GYMTRX.</item>
+        <item>Everything stays on your phone. GYMTRX has no server and never sends health data anywhere.</item>
+        <item>Change or remove access any time in Health Connect, or in GYMTRX under Settings → Health Connect.</item>
+    </string-array>
 </resources>

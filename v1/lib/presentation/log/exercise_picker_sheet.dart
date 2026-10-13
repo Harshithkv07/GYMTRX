@@ -13,6 +13,9 @@ import '../../logic/providers/data_providers.dart';
 import '../widgets/controls.dart';
 import '../widgets/pressable.dart';
 import 'log_sheet.dart';
+import '../../logic/features.dart';
+import '../../logic/providers/settings_provider.dart';
+import '../guide/exercise_guide_sheet.dart';
 
 /// Search the library and add several exercises in one go. Unknown names
 /// can be created on the spot.
@@ -22,20 +25,50 @@ Future<void> showExercisePicker(
   required Set<int> groupIds,
   required SheetWrite write,
 }) {
-  return showModalBottomSheet<void>(
+  return pickExercises(
+    context,
+    groupIds: groupIds,
+    watchSelected: (ref) => {
+      for (final e in ref.watch(entryProvider(dayKey)).value?.exercises ?? const <ExerciseEntry>[]) e.exercise.id,
+    },
+    onAdd: (id) => write((r, d) async => await r.addExercise(d, id)),
+  );
+}
+
+/// The library picker. Lists [groupIds]' exercises first. With [single] it
+/// returns the first tapped exercise; otherwise each tap calls [onAdd] and the
+/// sheet stays open. [watchSelected] marks exercises that are already in.
+Future<int?> pickExercises(
+  BuildContext context, {
+  String title = 'Add exercises',
+  Set<int> groupIds = const {},
+  Set<int> Function(WidgetRef ref)? watchSelected,
+  void Function(int id)? onAdd,
+  bool single = false,
+}) {
+  return showModalBottomSheet<int>(
     context: context,
     useRootNavigator: true,
     isScrollControlled: true,
-    builder: (_) => _ExercisePicker(dayKey: dayKey, groupIds: groupIds, write: write),
+    builder: (_) =>
+        _ExercisePicker(title: title, groupIds: groupIds, watchSelected: watchSelected, onAdd: onAdd, single: single),
   );
 }
 
 class _ExercisePicker extends ConsumerStatefulWidget {
-  const _ExercisePicker({required this.dayKey, required this.groupIds, required this.write});
+  const _ExercisePicker({
+    required this.title,
+    required this.groupIds,
+    required this.watchSelected,
+    required this.onAdd,
+    required this.single,
+  });
 
-  final int dayKey;
+  final String title;
   final Set<int> groupIds;
-  final SheetWrite write;
+  final Set<int> Function(WidgetRef ref)? watchSelected;
+  final void Function(int id)? onAdd;
+  final bool single;
 
   @override
   ConsumerState<_ExercisePicker> createState() => _ExercisePickerState();
@@ -54,8 +87,12 @@ class _ExercisePickerState extends ConsumerState<_ExercisePicker> {
 
   void _add(int exerciseId) {
     Haptics.selection();
+    if (widget.single) {
+      Navigator.pop(context, exerciseId);
+      return;
+    }
     setState(() => _added.add(exerciseId));
-    widget.write((r, d) async => await r.addExercise(d, exerciseId));
+    widget.onAdd?.call(exerciseId);
   }
 
   Future<void> _create(String name, List<MuscleGroup> groups) async {
@@ -68,11 +105,12 @@ class _ExercisePickerState extends ConsumerState<_ExercisePicker> {
 
   @override
   Widget build(BuildContext context) {
-    final all = [for (final e in ref.watch(exercisesProvider).value ?? const <Exercise>[]) if (!e.hidden) e];
+    final all = [
+      for (final e in ref.watch(exercisesProvider).value ?? const <Exercise>[])
+        if (!e.hidden) e,
+    ];
     final groups = ref.watch(groupsProvider).value ?? const <MuscleGroup>[];
-    final inEntry = <int>{
-      for (final e in ref.watch(entryProvider(widget.dayKey)).value?.exercises ?? const <ExerciseEntry>[]) e.exercise.id,
-    };
+    final inEntry = widget.watchSelected?.call(ref) ?? const <int>{};
     final q = _query.trim().toLowerCase();
 
     final rows = <Widget>[];
@@ -85,12 +123,22 @@ class _ExercisePickerState extends ConsumerState<_ExercisePicker> {
       for (final g in ordered) {
         final list = all.where((e) => e.groupId == g.id).toList();
         if (list.isEmpty) continue;
-        rows.add(SectionHeader(g.name, padding: const EdgeInsets.fromLTRB(GtSpace.gutter, GtSpace.xl, GtSpace.gutter, GtSpace.xs)));
+        rows.add(
+          SectionHeader(
+            g.name,
+            padding: const EdgeInsets.fromLTRB(GtSpace.gutter, GtSpace.xl, GtSpace.gutter, GtSpace.xs),
+          ),
+        );
         rows.addAll(list.map((e) => _row(e, inEntry)));
       }
       final other = all.where((e) => e.groupId == null).toList();
       if (other.isNotEmpty) {
-        rows.add(const SectionHeader('Other', padding: EdgeInsets.fromLTRB(GtSpace.gutter, GtSpace.xl, GtSpace.gutter, GtSpace.xs)));
+        rows.add(
+          const SectionHeader(
+            'Other',
+            padding: EdgeInsets.fromLTRB(GtSpace.gutter, GtSpace.xl, GtSpace.gutter, GtSpace.xs),
+          ),
+        );
         rows.addAll(other.map((e) => _row(e, inEntry)));
       }
     } else {
@@ -117,7 +165,7 @@ class _ExercisePickerState extends ConsumerState<_ExercisePicker> {
               padding: const EdgeInsets.fromLTRB(GtSpace.gutter, GtSpace.xs, GtSpace.lg, GtSpace.md),
               child: Row(
                 children: [
-                  Expanded(child: Text('Add exercises', style: GtText.title)),
+                  Expanded(child: Text(widget.title, style: GtText.title)),
                   Pressable(
                     onTap: () => Navigator.pop(context),
                     scale: 0.92,
@@ -125,8 +173,17 @@ class _ExercisePickerState extends ConsumerState<_ExercisePicker> {
                       height: 38,
                       padding: const EdgeInsets.symmetric(horizontal: GtSpace.lg),
                       alignment: Alignment.center,
-                      decoration: ShapeDecoration(color: context.accent, shape: squircle(19)),
-                      child: Text('Done', style: GtText.label.sized(15).weight(600).colored(GtColors.onAccent)),
+                      decoration: ShapeDecoration(
+                        color: widget.single ? GtColors.s2 : context.accent,
+                        shape: squircle(19),
+                      ),
+                      child: Text(
+                        widget.single ? 'Cancel' : 'Done',
+                        style: GtText.label
+                            .sized(15)
+                            .weight(600)
+                            .colored(widget.single ? GtColors.text1 : GtColors.onAccent),
+                      ),
                     ),
                   ),
                 ],
@@ -168,7 +225,7 @@ class _ExercisePickerState extends ConsumerState<_ExercisePicker> {
   }
 
   Widget _row(Exercise e, Set<int> inEntry) {
-    final done = inEntry.contains(e.id) || _added.contains(e.id);
+    final done = !widget.single && (inEntry.contains(e.id) || _added.contains(e.id));
     return Pressable(
       key: ValueKey(e.id),
       onTap: done ? null : () => _add(e.id),
@@ -179,9 +236,18 @@ class _ExercisePickerState extends ConsumerState<_ExercisePicker> {
         padding: const EdgeInsets.symmetric(horizontal: GtSpace.gutter),
         child: Row(
           children: [
-            Expanded(
-              child: Text(e.name, style: GtText.body.colored(done ? GtColors.text2 : GtColors.text1)),
-            ),
+            Expanded(child: Text(e.name, style: GtText.body.colored(done ? GtColors.text2 : GtColors.text1))),
+            if (ref.watch(settingsProvider.select((s) => s.has(AppFeature.guide))))
+              Pressable(
+                onTap: () => showExerciseGuide(context, e),
+                haptic: PressHaptic.selection,
+                scale: 0.88,
+                semanticLabel: 'How to do ${e.name}',
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: GtSpace.md, vertical: GtSpace.sm),
+                  child: Icon(GtIcons.guide, size: 18, color: GtColors.text2),
+                ),
+              ),
             AnimatedSwitcher(
               duration: GtMotion.of(context, GtMotion.medium),
               transitionBuilder: (child, a) => ScaleTransition(scale: a, child: child),

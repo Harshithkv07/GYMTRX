@@ -38,11 +38,46 @@ void main() {
     await sessions.setDuration(20261004, 50);
     await BodyWeightRepository(a).upsert(20261001, 72.4);
     await BodyWeightRepository(a).upsert(20261003, 72.1);
+    // Version 3: start time, watch numbers, steps, a scale's weigh-in, a guide link.
+    await sessions.setStartedAt(20261004, DateTime(2026, 10, 4, 18, 5));
+    final sid4 = (await sessions.loadEntry(20261004))!.session.id;
+    await a
+        .into(a.sessionHealth)
+        .insert(
+          SessionHealthCompanion.insert(
+            sessionId: Value(sid4),
+            startAt: DateTime(2026, 10, 4, 18, 5),
+            endAt: DateTime(2026, 10, 4, 18, 55),
+            avgHr: const Value(128),
+            maxHr: const Value(161),
+            activeKcal: const Value(310),
+            source: const Value('com.sec.android.app.shealth'),
+          ),
+        );
+    await a
+        .into(a.dailyHealth)
+        .insert(
+          DailyHealthCompanion.insert(
+            dayKey: const Value(20261002),
+            steps: const Value(8412),
+            sleepMin: const Value(431),
+          ),
+        );
+    await a
+        .into(a.bodyWeights)
+        .insert(
+          BodyWeightsCompanion.insert(
+            dayKey: const Value(20261005),
+            weightKg: 71.9,
+            source: const Value('com.xiaomi.wearable'),
+          ),
+        );
+    await LibraryRepository(a).linkGuide(custom, 'Landmine_Press');
 
     final first = await BackupService(a).export(settings: {'unit': 'kg', 'weekStart': 1});
     final parsed = BackupService.parse(first);
     expect(parsed.entryCount, 2);
-    expect(parsed.weighInCount, 2);
+    expect(parsed.weighInCount, 3);
     expect(parsed.firstDay, 20261001);
     expect(parsed.lastDay, 20261004);
     expect(parsed.settings['unit'], 'kg');
@@ -56,6 +91,11 @@ void main() {
     final restored = await SessionRepository(b).loadEntry(20261001);
     expect(restored!.session.note, 'Knees felt fine');
     expect(restored.exercises.single.sets.first.weightKg, 80.5);
+    final day4 = await SessionRepository(b).loadEntry(20261004);
+    expect(day4!.session.startedAt, DateTime(2026, 10, 4, 18, 5));
+    final health = await b.select(b.sessionHealth).getSingle();
+    expect((health.sessionId, health.avgHr, health.activeKcal), (day4.session.id, 128, 310));
+    expect((await b.select(b.dailyHealth).getSingle()).steps, 8412);
 
     await a.close();
     await b.close();

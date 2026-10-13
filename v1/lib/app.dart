@@ -6,6 +6,7 @@ import 'core/motion/motion.dart';
 import 'core/theme/app_theme.dart';
 import 'logic/providers/settings_provider.dart';
 import 'presentation/lock/lock_gate.dart';
+import 'presentation/onboarding/onboarding_screen.dart';
 import 'presentation/shell/app_shell.dart';
 import 'presentation/widgets/toast.dart';
 
@@ -27,6 +28,7 @@ class GymtrxApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = ref.watch(settingsProvider.select((s) => s.accent));
+    final onboarded = ref.watch(settingsProvider.select((s) => s.onboardingDone));
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: gtOverlayStyle,
       child: MaterialApp(
@@ -42,7 +44,12 @@ class GymtrxApp extends ConsumerWidget {
           maxScaleFactor: 1.3,
           child: ToastHost(child: LockGate(child: child!)),
         ),
-        home: const AppShell(),
+        // First launch asks which features to use; afterwards straight to the app.
+        home: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 500),
+          switchInCurve: GtMotion.emphasized,
+          child: onboarded ? const AppShell() : const OnboardingScreen(),
+        ),
       ),
     );
   }

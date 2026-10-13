@@ -9,8 +9,8 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Release signing comes from android/key.properties (gitignored). Without it,
-// release builds fall back to this machine's debug key.
+// Release signing comes from android/key.properties (gitignored). A release
+// build without it fails: a debug-signed APK can't update the installed app.
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) load(FileInputStream(keystorePropertiesFile))
@@ -24,6 +24,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Required by flutter_local_notifications.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -62,6 +64,20 @@ android {
             }
         }
     }
+}
+
+gradle.taskGraph.whenReady {
+    if (!keystorePropertiesFile.exists() && allTasks.any { it.name.contains("Release") }) {
+        throw GradleException("android/key.properties is missing: release builds must use the GYMTRX release key.")
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Health Connect (steps, heart rate, sleep, workouts, weight).
+    implementation("androidx.health.connect:connect-client:1.1.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 }
 
 flutter {

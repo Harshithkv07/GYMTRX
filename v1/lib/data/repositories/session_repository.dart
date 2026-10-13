@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../database/app_database.dart';
 import '../models/entry.dart';
+import '../models/progress.dart';
 
 /// Reads and writes day entries. Every write lands immediately: the log sheet
 /// saves as you go, and Drift's streams push the change to every screen.
@@ -175,6 +176,38 @@ class SessionRepository {
     ];
   }
 
+  static const _setRecordsSql =
+      'SELECT es.id AS set_id, se.exercise_id, e.kind, s.day_key, se.id AS entry_id, se.position AS entry_pos, '
+      'es.position AS set_pos, es.weight_kg, es.reps, es.duration_sec, es.distance_km '
+      'FROM exercise_sets es '
+      'JOIN session_exercises se ON se.id = es.session_exercise_id '
+      'JOIN sessions s ON s.id = se.session_id '
+      'JOIN exercises e ON e.id = se.exercise_id '
+      'ORDER BY s.day_key, se.position, se.id, es.position, es.id';
+
+  Selectable<SetRecordRow> _setRecords() => db
+      .customSelect(_setRecordsSql, readsFrom: {db.exerciseSets, db.sessionExercises, db.sessions, db.exercises})
+      .map(
+        (r) => (
+          setId: r.read<int>('set_id'),
+          exerciseId: r.read<int>('exercise_id'),
+          kind: ExerciseKind.values[r.read<int>('kind')],
+          dayKey: r.read<int>('day_key'),
+          entryId: r.read<int>('entry_id'),
+          entryPos: r.read<int>('entry_pos'),
+          setPos: r.read<int>('set_pos'),
+          weightKg: r.readNullable<double>('weight_kg'),
+          reps: r.readNullable<int>('reps'),
+          durationSec: r.readNullable<int>('duration_sec'),
+          distanceKm: r.readNullable<double>('distance_km'),
+        ),
+      );
+
+  /// Every logged set in logging order, for personal-record detection.
+  Stream<List<SetRecordRow>> watchSetRecords() => _setRecords().watch();
+
+  Future<List<SetRecordRow>> loadSetRecords() => _setRecords().get();
+
   // ---------------------------------------------------------------- writing
 
   /// Returns the id of [dayKey]'s session, creating an empty one if needed.
@@ -184,15 +217,19 @@ class SessionRepository {
     return db.into(db.sessions).insert(SessionsCompanion.insert(dayKey: dayKey));
   }
 
-  Future<void> _touch(int sessionId) => (db.update(db.sessions)..where((s) => s.id.equals(sessionId)))
-      .write(SessionsCompanion(updatedAt: Value(DateTime.now())));
+  Future<void> _touch(int sessionId) => (db.update(
+    db.sessions,
+  )..where((s) => s.id.equals(sessionId))).write(SessionsCompanion(updatedAt: Value(DateTime.now())));
 
   Future<void> setGroupSelected(int dayKey, int groupId, bool selected) => db.transaction(() async {
     final sid = await ensureSession(dayKey);
     if (selected) {
       await db
           .into(db.sessionGroups)
-          .insert(SessionGroupsCompanion.insert(sessionId: sid, groupId: groupId), mode: InsertMode.insertOrIgnore);
+          .insert(
+            SessionGroupsCompanion.insert(sessionId: sid, groupId: groupId),
+            mode: InsertMode.insertOrIgnore,
+          );
     } else {
       await (db.delete(db.sessionGroups)..where((g) => g.sessionId.equals(sid) & g.groupId.equals(groupId))).go();
     }
@@ -208,6 +245,27 @@ class SessionRepository {
         for (final id in groupIds) SessionGroupsCompanion.insert(sessionId: sid, groupId: id),
       ], mode: InsertMode.insertOrIgnore);
     });
+    await _touch(sid);
+  });
+
+  /// Fills [dayKey] from a program day: adds its groups and appends any of its
+  /// exercises the day doesn't have yet.
+  Future<void> applyProgramDay(int dayKey, ProgramDayPlan plan) => db.transaction(() async {
+    final sid = await ensureSession(dayKey);
+    await db.batch((b) {
+      b.insertAll(db.sessionGroups, [
+        for (final id in plan.groupIds) SessionGroupsCompanion.insert(sessionId: sid, groupId: id),
+      ], mode: InsertMode.insertOrIgnore);
+    });
+    final existing = await (db.select(db.sessionExercises)..where((e) => e.sessionId.equals(sid))).get();
+    final have = {for (final e in existing) e.exerciseId};
+    var position = existing.fold(-1, (p, e) => e.position > p ? e.position : p) + 1;
+    for (final id in plan.exerciseIds) {
+      if (!have.add(id)) continue;
+      await db
+          .into(db.sessionExercises)
+          .insert(SessionExercisesCompanion.insert(sessionId: sid, exerciseId: id, position: position++));
+    }
     await _touch(sid);
   });
 
@@ -231,6 +289,14 @@ class SessionRepository {
       ),
     );
   });
+
+  /// The session's start time; null clears it. Only an existing session is
+  /// changed: a start time alone never creates an entry.
+  Future<void> setStartedAt(int dayKey, DateTime? at) async {
+    await (db.update(db.sessions)..where((s) => s.dayKey.equals(dayKey))).write(
+      SessionsCompanion(startedAt: Value(at), updatedAt: Value(DateTime.now())),
+    );
+  }
 
   Future<int> addExercise(int dayKey, int exerciseId) => db.transaction(() async {
     final sid = await ensureSession(dayKey);
@@ -362,6 +428,7 @@ class SessionRepository {
             note: Value(snap.note),
             durationMin: Value(snap.durationMin),
             createdAt: Value(snap.createdAt),
+            startedAt: Value(snap.startedAt),
           ),
         );
     await db.batch((b) {
@@ -374,7 +441,12 @@ class SessionRepository {
       final seId = await db
           .into(db.sessionExercises)
           .insert(
-            SessionExercisesCompanion.insert(sessionId: sid, exerciseId: e.exerciseId, position: i, note: Value(e.note)),
+            SessionExercisesCompanion.insert(
+              sessionId: sid,
+              exerciseId: e.exerciseId,
+              position: i,
+              note: Value(e.note),
+            ),
           );
       await _insertSets(seId, e.sets);
     }

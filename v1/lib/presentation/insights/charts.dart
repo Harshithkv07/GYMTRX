@@ -87,11 +87,23 @@ class MonthlyBars extends StatelessWidget {
 }
 
 /// A smooth weight line. Points are (dayKey, value-in-display-units).
+/// Optionally a dashed [trend] line over the same days, a [goal] level and
+/// gold dots on [highlightDays].
 class WeightLine extends StatelessWidget {
-  const WeightLine({super.key, required this.points, required this.unitLabel});
+  const WeightLine({
+    super.key,
+    required this.points,
+    required this.unitLabel,
+    this.trend,
+    this.goal,
+    this.highlightDays = const {},
+  });
 
   final List<(int dayKey, double value)> points;
   final String unitLabel;
+  final List<(int dayKey, double value)>? trend;
+  final double? goal;
+  final Set<int> highlightDays;
 
   @override
   Widget build(BuildContext context) {
@@ -99,7 +111,8 @@ class WeightLine extends StatelessWidget {
     if (points.isEmpty) return const SizedBox(height: 160);
     final first = points.first.$1;
     double x(int dayKey) => DayKeys.daysBetween(first, dayKey).toDouble();
-    final values = points.map((p) => p.$2);
+    final trendPoints = points.length < 2 ? null : trend;
+    final values = [...points.map((p) => p.$2), ...?trendPoints?.map((p) => p.$2), ?goal];
     final lo = values.reduce((a, b) => a < b ? a : b);
     final hi = values.reduce((a, b) => a > b ? a : b);
     final pad = ((hi - lo) * 0.25).clamp(0.5, 10.0);
@@ -145,20 +158,42 @@ class WeightLine extends StatelessWidget {
               tooltipBorderRadius: BorderRadius.circular(GtRadius.sm),
               getTooltipItems: (spots) => [
                 for (final s in spots)
-                  LineTooltipItem(
-                    '${Fmt.number(s.y, maxDecimals: 1)} $unitLabel\n',
-                    GtText.label,
-                    children: [TextSpan(text: Fmt.dayMonthYear(points[s.spotIndex].$1), style: GtText.caption)],
-                  ),
+                  s.barIndex == 0
+                      ? LineTooltipItem(
+                          '${Fmt.number(s.y, maxDecimals: 1)} $unitLabel\n',
+                          GtText.label,
+                          children: [TextSpan(text: Fmt.dayMonthYear(points[s.spotIndex].$1), style: GtText.caption)],
+                        )
+                      : LineTooltipItem('7-day avg ${Fmt.number(s.y, maxDecimals: 1)}', GtText.caption),
               ],
             ),
             getTouchedSpotIndicator: (bar, indexes) => [
               for (final _ in indexes)
-                TouchedSpotIndicatorData(
-                  const FlLine(color: GtColors.hairlineStrong, strokeWidth: 1),
-                  FlDotData(
-                    getDotPainter: (_, _, _, _) =>
-                        FlDotCirclePainter(radius: 5, color: accent, strokeWidth: 3, strokeColor: GtColors.bg),
+                bar.dashArray != null
+                    ? const TouchedSpotIndicatorData(FlLine(color: Colors.transparent), FlDotData(show: false))
+                    : TouchedSpotIndicatorData(
+                        const FlLine(color: GtColors.hairlineStrong, strokeWidth: 1),
+                        FlDotData(
+                          getDotPainter: (_, _, _, _) =>
+                              FlDotCirclePainter(radius: 5, color: accent, strokeWidth: 3, strokeColor: GtColors.bg),
+                        ),
+                      ),
+            ],
+          ),
+          extraLinesData: ExtraLinesData(
+            horizontalLines: [
+              if (goal != null)
+                HorizontalLine(
+                  y: goal!,
+                  color: GtColors.gold.withValues(alpha: 0.7),
+                  strokeWidth: 1.2,
+                  dashArray: const [6, 4],
+                  label: HorizontalLineLabel(
+                    show: true,
+                    alignment: Alignment.topLeft,
+                    padding: const EdgeInsets.only(left: 2, bottom: 2),
+                    style: GtText.monoSmall.sized(10).colored(GtColors.gold),
+                    labelResolver: (l) => 'GOAL ${Fmt.number(l.y, maxDecimals: 1)}',
                   ),
                 ),
             ],
@@ -173,9 +208,16 @@ class WeightLine extends StatelessWidget {
               barWidth: 2.5,
               isStrokeCapRound: true,
               dotData: FlDotData(
-                show: points.length < 24,
-                getDotPainter: (_, _, _, _) =>
-                    FlDotCirclePainter(radius: 2.5, color: accent, strokeWidth: 0, strokeColor: accent),
+                show: points.length < 24 || highlightDays.isNotEmpty,
+                checkToShowDot: (spot, _) =>
+                    points.length < 24 ||
+                    (spot.x.round() >= 0 && highlightDays.contains(DayKeys.addDays(first, spot.x.round()))),
+                getDotPainter: (spot, _, _, _) {
+                  final day = points.length == 1 ? first : DayKeys.addDays(first, spot.x.round());
+                  return highlightDays.contains(day)
+                      ? FlDotCirclePainter(radius: 4, color: GtColors.gold, strokeWidth: 2, strokeColor: GtColors.s1)
+                      : FlDotCirclePainter(radius: 2.5, color: accent, strokeWidth: 0, strokeColor: accent);
+                },
               ),
               belowBarData: BarAreaData(
                 show: true,
@@ -186,6 +228,17 @@ class WeightLine extends StatelessWidget {
                 ),
               ),
             ),
+            if (trendPoints != null)
+              LineChartBarData(
+                spots: [for (final p in trendPoints) FlSpot(x(p.$1), p.$2)],
+                isCurved: true,
+                curveSmoothness: 0.35,
+                preventCurveOverShooting: true,
+                color: GtColors.text2,
+                barWidth: 1.5,
+                dashArray: const [4, 3],
+                dotData: const FlDotData(show: false),
+              ),
           ],
         ),
       ),

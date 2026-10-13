@@ -14,7 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "assets" / "brand"
 
 BG = (10, 10, 11, 255)
-ON = (212, 255, 63, 255)  # volt
+ON = (168, 200, 160, 255)  # sage, the default accent
 OFF = (38, 38, 42, 255)
 WHITE = (255, 255, 255, 255)
 PATTERN = [True, False, True, False, True, True, True, False, False]

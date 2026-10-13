@@ -11,11 +11,14 @@ import '../../core/utils/formatters.dart';
 import '../../data/database/app_database.dart';
 import '../../data/models/entry.dart';
 import '../../logic/providers/data_providers.dart';
+import '../../logic/providers/health_providers.dart';
+import '../../logic/providers/holiday_providers.dart';
 import '../../logic/providers/navigation_providers.dart';
 import '../../logic/providers/settings_provider.dart';
 import '../log/log_actions.dart';
 import '../settings/settings_screen.dart';
 import '../shell/glass_nav_bar.dart';
+import '../tour/tour_target.dart';
 import '../widgets/gt_chip.dart';
 import '../widgets/labels.dart';
 import 'calendar_header.dart';
@@ -23,6 +26,7 @@ import 'day_peek.dart';
 import 'entry_card.dart';
 import 'month_grid.dart';
 import 'month_pager.dart';
+import '../../logic/providers/progress_providers.dart';
 
 class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
@@ -36,6 +40,22 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   late YearMonth _current = yearMonthOf(ref.read(todayProvider));
   late YearMonth _month = _current;
   int? _filter;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(healthSyncProvider.notifier).ensureMonth(_month);
+    });
+  }
+
+  /// What a long-press shows besides the entry: holiday, steps, sleep.
+  List<String> _peekLines(int day, Map<int, String> holidays, Map<int, DailyHealthData> daily, bool sleep) => [
+    ?holidays[day],
+    if (daily[day]?.steps case final steps?) '${Fmt.thousands(steps)} steps',
+    if (sleep)
+      if (daily[day]?.sleepMin case final min? when min > 0) 'Slept ${Fmt.duration(min)}',
+  ];
 
   void _onDayTap(int dayKey, Map<int, EntrySummary> entries) {
     if (entries.containsKey(dayKey)) {
@@ -68,13 +88,24 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     final weekStart = ref.watch(settingsProvider.select((s) => s.weekStart));
     final entries = ref.watch(summariesByDayProvider);
     final groupsById = ref.watch(groupsByIdProvider);
+    final planOf = ref.watch(planOfProvider);
     final loaded = ref.watch(summariesProvider).hasValue;
+    final holidays = ref.watch(holidayMapProvider);
+    final health = ref.watch(settingsProvider.select((s) => (on: s.healthOn, sleep: s.watchHealth && s.healthSleep)));
+    final daily = health.on
+        ? ref.watch(dailyHealthProvider).value ?? const <int, DailyHealthData>{}
+        : const <int, DailyHealthData>{};
 
-    final monthEntries = [for (final e in entries.values) if (_month.contains(e.dayKey)) e]
-      ..sort((a, b) => b.dayKey.compareTo(a.dayKey));
+    final monthEntries = [
+      for (final e in entries.values)
+        if (_month.contains(e.dayKey)) e,
+    ]..sort((a, b) => b.dayKey.compareTo(a.dayKey));
     final visibleEntries = _filter == null
         ? monthEntries
-        : [for (final e in monthEntries) if (e.groupIds.contains(_filter)) e];
+        : [
+            for (final e in monthEntries)
+              if (e.groupIds.contains(_filter)) e,
+          ];
 
     final padding = MediaQuery.paddingOf(context);
     final reduced = GtMotion.reduced(context);
@@ -90,32 +121,56 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             isCurrentMonth: _month == current,
             accent: context.accent,
             onToday: () => _pagerKey.currentState?.animateTo(current),
-            onSettings: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
+            onSettings: () =>
+                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
           ),
         ),
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: GtSpace.md),
           sliver: SliverToBoxAdapter(
-            child: MonthPager(
-              key: _pagerKey,
-              current: current,
-              initial: _month,
-              weekStart: weekStart,
-              onChanged: (m) => setState(() {
-                _month = m;
-                _filter = null;
-              }),
-              builder: (context, m) => MonthGrid(
-                month: m,
+            child: TourTarget(
+              spot: TourSpot.calendar,
+              child: MonthPager(
+                key: _pagerKey,
+                current: current,
+                initial: _month,
                 weekStart: weekStart,
-                today: today,
-                entries: entries,
-                highlightGroupId: m == _month ? _filter : null,
-                onDayTap: (d) => _onDayTap(d, entries),
-                onDayPeek: (d, rect) =>
-                    DayPeek.show(context, anchor: rect, entry: entries[d]!, groups: groupsById),
-                onPeekEnd: DayPeek.hide,
-                semanticsFor: (d) => daySemantics(d, entries[d], groupsById),
+                onChanged: (m) {
+                  setState(() {
+                    _month = m;
+                    _filter = null;
+                  });
+                  ref.read(healthSyncProvider.notifier).ensureMonth(m);
+                },
+                builder: (context, m) => MonthGrid(
+                  month: m,
+                  weekStart: weekStart,
+                  today: today,
+                  entries: entries,
+                  highlightGroupId: m == _month ? _filter : null,
+                  onDayTap: (d) => _onDayTap(d, entries),
+                  onDayPeek: (d, rect) => DayPeek.show(
+                    context,
+                    anchor: rect,
+                    dayKey: d,
+                    entry: entries[d],
+                    groups: groupsById,
+                    lines: _peekLines(d, holidays, daily, health.sleep),
+                  ),
+                  onPeekEnd: DayPeek.hide,
+                  semanticsFor: (d) => daySemantics(
+                    d,
+                    entries[d],
+                    groupsById,
+                    plan: planOf(d),
+                    holiday: holidays[d],
+                    steps: daily[d]?.steps,
+                  ),
+                  planOf: planOf,
+                  holidays: holidays,
+                  stepsOf: (d) => daily[d]?.steps,
+                  canPeek: (d) => holidays.containsKey(d) || daily[d]?.steps != null,
+                ),
               ),
             ),
           ),
@@ -144,7 +199,13 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 return card
                     .animate(key: ValueKey('${visibleEntries[i].dayKey}-$_month'))
                     .fadeIn(duration: 320.ms, delay: (35 * i.clamp(0, 8)).ms)
-                    .moveY(begin: 10, end: 0, duration: 420.ms, delay: (35 * i.clamp(0, 8)).ms, curve: GtMotion.emphasized);
+                    .moveY(
+                      begin: 10,
+                      end: 0,
+                      duration: 420.ms,
+                      delay: (35 * i.clamp(0, 8)).ms,
+                      curve: GtMotion.emphasized,
+                    );
               },
             ),
           ),

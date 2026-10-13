@@ -14,6 +14,7 @@ import '../widgets/controls.dart';
 import '../widgets/gt_button.dart';
 import '../widgets/pressable.dart';
 import 'day_picker_sheet.dart';
+import '../settings/connection_settings.dart';
 
 /// Record body weight for any day, gym day or not.
 Future<void> showWeighInSheet(BuildContext context, WidgetRef ref, {required int dayKey}) {
@@ -53,7 +54,8 @@ class _WeighInSheetState extends ConsumerState<_WeighInSheet> {
   void _step(double delta) {
     final unit = ref.read(settingsProvider).unit;
     final weights = ref.read(bodyWeightsProvider).value ?? const [];
-    final base = parseNumber(_controller.text) ??
+    final base =
+        parseNumber(_controller.text) ??
         (weights.isEmpty ? (unit == WeightUnit.kg ? 70.0 : 154.0) : Units.toDisplay(weights.last.weightKg, unit));
     Haptics.selection();
     final next = ((base + delta) * 10).round() / 10;
@@ -158,6 +160,10 @@ class _WeighInSheetState extends ConsumerState<_WeighInSheet> {
                   _StepButton(label: '+', onTap: () => _step(0.1)),
                 ],
               ),
+              if (existing?.source case final src?) ...[
+                const SizedBox(height: GtSpace.sm),
+                Center(child: HealthSourceText(src, prefix: 'Came in from ')),
+              ],
               if (previous != null) ...[
                 const SizedBox(height: GtSpace.sm),
                 Text(

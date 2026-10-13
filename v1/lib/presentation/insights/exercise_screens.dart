@@ -8,14 +8,18 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/database/app_database.dart';
 import '../../data/models/entry.dart';
+import '../../logic/features.dart';
 import '../../logic/providers/data_providers.dart';
+import '../../logic/providers/progress_providers.dart';
 import '../../logic/providers/settings_provider.dart';
+import '../../logic/records.dart';
 import '../log/log_actions.dart';
 import '../widgets/large_title_header.dart';
 import '../widgets/labels.dart';
 import '../widgets/pressable.dart';
 import '../widgets/surface.dart';
 import 'charts.dart';
+import '../guide/exercise_guide_sheet.dart';
 
 /// "Bench Press · 12× · last Fri 3 Oct", opening its full history.
 class ExerciseStatRow extends StatelessWidget {
@@ -27,9 +31,9 @@ class ExerciseStatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Pressable(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => ExerciseHistoryScreen(exercise: stat.exercise)),
-      ),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => ExerciseHistoryScreen(exercise: stat.exercise))),
       scale: 0.98,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: GtSpace.lg, vertical: 12),
@@ -110,6 +114,13 @@ class ExerciseHistoryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final history = ref.watch(exerciseHistoryProvider(exercise.id)).value ?? const <ExerciseHistoryItem>[];
+    final prs = ref.watch(settingsProvider.select((s) => s.has(AppFeature.records)))
+        ? ref.watch(prIndexProvider)
+        : PrIndex.empty;
+    final prDays = {
+      for (final h in prs.hits)
+        if (h.exerciseId == exercise.id) h.dayKey,
+    };
     final unit = ref.watch(settingsProvider.select((s) => s.unit));
     final today = ref.watch(todayProvider);
     final padding = MediaQuery.paddingOf(context);
@@ -127,13 +138,28 @@ class ExerciseHistoryScreen extends ConsumerWidget {
         slivers: [
           SliverPersistentHeader(
             pinned: true,
-            delegate: LargeTitleHeader(title: exercise.name, topPadding: padding.top, showBack: true),
+            delegate: LargeTitleHeader(
+              title: exercise.name,
+              topPadding: padding.top,
+              showBack: true,
+              trailing: ref.watch(settingsProvider.select((s) => s.has(AppFeature.guide)))
+                  ? GtIconButton(
+                      icon: GtIcons.guide,
+                      onTap: () => showExerciseGuide(context, exercise),
+                      color: Colors.transparent,
+                      iconSize: 22,
+                      semanticLabel: 'How to do ${exercise.name}',
+                    )
+                  : null,
+            ),
           ),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(GtSpace.gutter, 0, GtSpace.gutter, GtSpace.lg),
               child: Text(
-                history.isEmpty ? 'Not logged yet.' : '${Fmt.plural(history.length, 'time')} · since ${Fmt.dayMonthYear(history.last.dayKey)}',
+                history.isEmpty
+                    ? 'Not logged yet.'
+                    : '${Fmt.plural(history.length, 'time')} · since ${Fmt.dayMonthYear(history.last.dayKey)}',
                 style: GtText.label.colored(GtColors.text2),
               ),
             ),
@@ -149,7 +175,7 @@ class ExerciseHistoryScreen extends ConsumerWidget {
                     children: [
                       Text('HEAVIEST SET PER DAY', style: GtText.overline),
                       const SizedBox(height: GtSpace.lg),
-                      WeightLine(points: points, unitLabel: unit.name),
+                      WeightLine(points: points, unitLabel: unit.name, highlightDays: prDays),
                     ],
                   ),
                 ),
@@ -170,14 +196,31 @@ class ExerciseHistoryScreen extends ConsumerWidget {
                       Row(
                         children: [
                           Text(Fmt.weekdayDayMonth(h.dayKey), style: GtText.titleSmall.sized(15)),
+                          if (h.sets.any((s) => prs.isPrSet(s.id))) ...[
+                            const SizedBox(width: GtSpace.sm),
+                            const Icon(
+                              GtIcons.trophy,
+                              size: 13,
+                              color: GtColors.gold,
+                              semanticLabel: 'Personal record',
+                            ),
+                          ],
                           const Spacer(),
                           Text(Fmt.relativeDay(h.dayKey, today), style: GtText.caption),
                         ],
                       ),
                       if (h.sets.isNotEmpty) ...[
                         const SizedBox(height: GtSpace.sm),
-                        Text(
-                          h.sets.map((s) => formatSet(s, exercise.kind, unit)).join('   '),
+                        Text.rich(
+                          TextSpan(
+                            children: [
+                              for (var j = 0; j < h.sets.length; j++)
+                                TextSpan(
+                                  text: '${j == 0 ? '' : '   '}${formatSet(h.sets[j], exercise.kind, unit)}',
+                                  style: prs.isPrSet(h.sets[j].id) ? const TextStyle(color: GtColors.gold) : null,
+                                ),
+                            ],
+                          ),
                           style: GtText.mono.sized(14).colored(GtColors.text1),
                         ),
                       ],

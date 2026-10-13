@@ -14,10 +14,16 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/database/app_database.dart';
 import '../../data/models/entry.dart';
+import '../../logic/features.dart';
 import '../../logic/providers/data_providers.dart';
+import '../../logic/providers/progress_providers.dart';
 import '../../logic/providers/settings_provider.dart';
+import '../../logic/records.dart';
 import '../calendar/entry_card.dart';
 import '../log/log_actions.dart';
+import '../health/health_widgets.dart';
+import '../photos/photo_views.dart';
+import '../share/share_actions.dart';
 import '../widgets/controls.dart';
 import '../widgets/gt_button.dart';
 import '../widgets/labels.dart';
@@ -36,7 +42,10 @@ class EntryDetailScreen extends ConsumerWidget {
     final entry = async.value;
     final today = ref.watch(todayProvider);
     final unit = ref.watch(settingsProvider.select((s) => s.unit));
-    final weight = ref.watch(bodyWeightByDayProvider)[dayKey];
+    final features = ref.watch(settingsProvider.select((s) => s.features));
+    final weight = features.contains(AppFeature.bodyWeight) ? ref.watch(bodyWeightByDayProvider)[dayKey] : null;
+    final prs = features.contains(AppFeature.records) ? ref.watch(prIndexProvider) : PrIndex.empty;
+    final photos = ref.watch(photosByDayProvider)[dayKey] ?? const <ProgressPhoto>[];
     final padding = MediaQuery.paddingOf(context);
     final reduced = GtMotion.reduced(context);
 
@@ -52,6 +61,7 @@ class EntryDetailScreen extends ConsumerWidget {
         _GroupPills(groups: entry.groups),
         EntryBodyMap(groups: entry.groups),
         _Stats(entry: entry, weightKg: weight?.weightKg, unit: unit),
+        EntryHealthSection(key: ValueKey('health-$dayKey'), entry: entry),
         if (entry.exercises.isEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(GtSpace.lg, GtSpace.xxl, GtSpace.lg, 0),
@@ -65,7 +75,15 @@ class EntryDetailScreen extends ConsumerWidget {
           )
         else ...[
           const SectionHeader('Exercises'),
-          for (final e in entry.exercises) _ExerciseBlock(entry: e, unit: unit),
+          for (final e in entry.exercises)
+            _ExerciseBlock(
+              entry: e,
+              unit: unit,
+              prSetIds: {
+                for (final s in e.sets)
+                  if (prs.isPrSet(s.id)) s.id,
+              },
+            ),
         ],
         if ((entry.session.note ?? '').isNotEmpty) ...[
           const SectionHeader('Note'),
@@ -74,10 +92,18 @@ class EntryDetailScreen extends ConsumerWidget {
             child: GtCard(child: Text(entry.session.note!, style: GtText.body)),
           ),
         ],
+        if (features.contains(AppFeature.photos)) ...[
+          const SectionHeader('Photos'),
+          PhotoStrip(photos: photos, dayKey: dayKey, showDates: false),
+        ],
       ] else if (async.hasValue)
         Padding(
           padding: const EdgeInsets.all(GtSpace.x4),
-          child: Text('Nothing logged on this day.', textAlign: TextAlign.center, style: GtText.body.colored(GtColors.text2)),
+          child: Text(
+            'Nothing logged on this day.',
+            textAlign: TextAlign.center,
+            style: GtText.body.colored(GtColors.text2),
+          ),
         ),
     ];
 
@@ -91,6 +117,7 @@ class EntryDetailScreen extends ConsumerWidget {
               topPadding: padding.top,
               title: Fmt.weekdayDayMonth(dayKey),
               onEdit: entry == null ? null : () => openLogSheet(context, ref, dayKey: dayKey),
+              onShare: entry == null ? null : () => shareDay(context, ref, dayKey),
               onDelete: entry == null
                   ? null
                   : () {
@@ -109,7 +136,10 @@ class EntryDetailScreen extends ConsumerWidget {
                 children: [
                   Hero(
                     tag: 'entry-date-$dayKey',
-                    child: Material(type: MaterialType.transparency, child: DateBlock(dayKey: dayKey, large: true)),
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: DateBlock(dayKey: dayKey, large: true),
+                    ),
                   ),
                   const Spacer(),
                   Padding(
@@ -139,12 +169,19 @@ class EntryDetailScreen extends ConsumerWidget {
 }
 
 class _DetailBarDelegate extends SliverPersistentHeaderDelegate {
-  _DetailBarDelegate({required this.topPadding, required this.title, required this.onEdit, required this.onDelete});
+  _DetailBarDelegate({
+    required this.topPadding,
+    required this.title,
+    required this.onEdit,
+    required this.onDelete,
+    this.onShare,
+  });
 
   final double topPadding;
   final String title;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final VoidCallback? onShare;
 
   @override
   double get minExtent => topPadding + 60;
@@ -188,9 +225,18 @@ class _DetailBarDelegate extends SliverPersistentHeaderDelegate {
                 ),
               ),
               if (onEdit != null) ...[
+                if (onShare != null) ...[
+                  GtIconButton(icon: GtIcons.share, onTap: onShare, semanticLabel: 'Share'),
+                  const SizedBox(width: GtSpace.sm),
+                ],
                 GtIconButton(icon: GtIcons.edit, onTap: onEdit, semanticLabel: 'Edit'),
                 const SizedBox(width: GtSpace.sm),
-                GtIconButton(icon: GtIcons.delete, onTap: onDelete, semanticLabel: 'Delete', iconColor: GtColors.danger),
+                GtIconButton(
+                  icon: GtIcons.delete,
+                  onTap: onDelete,
+                  semanticLabel: 'Delete',
+                  iconColor: GtColors.danger,
+                ),
               ] else
                 const SizedBox(width: 40),
             ],
@@ -202,7 +248,10 @@ class _DetailBarDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(_DetailBarDelegate old) =>
-      old.title != title || old.topPadding != topPadding || (old.onEdit == null) != (onEdit == null);
+      old.title != title ||
+      old.topPadding != topPadding ||
+      (old.onEdit == null) != (onEdit == null) ||
+      (old.onShare == null) != (onShare == null);
 }
 
 class _GroupPills extends StatelessWidget {
@@ -246,7 +295,8 @@ class _Stats extends StatelessWidget {
   Widget build(BuildContext context) {
     final sets = entry.exercises.fold(0, (n, e) => n + e.sets.length);
     final tiles = <(String, String)>[
-      if (entry.exercises.isNotEmpty) ('${entry.exercises.length}', entry.exercises.length == 1 ? 'exercise' : 'exercises'),
+      if (entry.exercises.isNotEmpty)
+        ('${entry.exercises.length}', entry.exercises.length == 1 ? 'exercise' : 'exercises'),
       if (sets > 0) ('$sets', sets == 1 ? 'set' : 'sets'),
       if (entry.session.durationMin != null) ('${entry.session.durationMin}', 'min'),
       if (weightKg != null) (Units.format(weightKg!, unit, withUnit: false, maxDecimals: 1), '${unit.name} body'),
@@ -279,10 +329,11 @@ class _Stats extends StatelessWidget {
 }
 
 class _ExerciseBlock extends StatelessWidget {
-  const _ExerciseBlock({required this.entry, required this.unit});
+  const _ExerciseBlock({required this.entry, required this.unit, required this.prSetIds});
 
   final ExerciseEntry entry;
   final WeightUnit unit;
+  final Set<int> prSetIds;
 
   @override
   Widget build(BuildContext context) {
@@ -292,14 +343,28 @@ class _ExerciseBlock extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(entry.exercise.name, style: GtText.titleSmall.sized(16)),
+            Row(
+              children: [
+                Expanded(child: Text(entry.exercise.name, style: GtText.titleSmall.sized(16))),
+                if (prSetIds.isNotEmpty) const _PrPill(),
+              ],
+            ),
             for (var i = 0; i < entry.sets.length; i++)
               Padding(
                 padding: EdgeInsets.only(top: i == 0 ? GtSpace.md : 6),
                 child: Row(
                   children: [
                     SizedBox(width: 24, child: Text('${i + 1}', style: GtText.monoSmall.colored(GtColors.text3))),
-                    Text(formatSet(entry.sets[i], entry.exercise.kind, unit), style: GtText.mono.sized(15)),
+                    Text(
+                      formatSet(entry.sets[i], entry.exercise.kind, unit),
+                      style: GtText.mono
+                          .sized(15)
+                          .colored(prSetIds.contains(entry.sets[i].id) ? GtColors.gold : GtColors.text1),
+                    ),
+                    if (prSetIds.contains(entry.sets[i].id)) ...[
+                      const SizedBox(width: GtSpace.sm),
+                      const Icon(GtIcons.trophy, size: 13, color: GtColors.gold, semanticLabel: 'Personal record'),
+                    ],
                   ],
                 ),
               ),
@@ -310,6 +375,28 @@ class _ExerciseBlock extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Small gold "PR" tag.
+class _PrPill extends StatelessWidget {
+  const _PrPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 22,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: ShapeDecoration(color: GtColors.goldMuted, shape: squircle(11)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(GtIcons.trophy, size: 11, color: GtColors.gold),
+          const SizedBox(width: 4),
+          Text('PR', style: GtText.monoSmall.weight(700).colored(GtColors.gold)),
+        ],
       ),
     );
   }

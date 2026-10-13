@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/icons.dart';
+import '../../core/theme/palette.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../core/utils/haptics.dart';
@@ -14,6 +15,11 @@ import '../widgets/gt_chip.dart';
 import '../widgets/large_title_header.dart';
 import '../widgets/pressable.dart';
 import 'settings_widgets.dart';
+import '../../logic/features.dart';
+import '../../logic/providers/settings_provider.dart';
+import '../guide/exercise_guide_sheet.dart';
+import '../guide/guide_browser_screen.dart';
+import '../widgets/surface.dart';
 
 /// Show, hide, rename, reorder and add muscle groups. Hiding never touches
 /// past entries.
@@ -104,7 +110,12 @@ class _GroupsLibraryScreenState extends ConsumerState<GroupsLibraryScreen> {
                 kind: GtButtonKind.secondary,
                 expand: true,
                 onTap: () async {
-                  final name = await showTextInputSheet(context, title: 'New muscle group', hint: 'e.g. Hamstrings', action: 'Add');
+                  final name = await showTextInputSheet(
+                    context,
+                    title: 'New muscle group',
+                    hint: 'e.g. Hamstrings',
+                    action: 'Add',
+                  );
                   if (name != null) repo.addGroup(name);
                 },
               ),
@@ -148,7 +159,12 @@ class _ExercisesLibraryScreenState extends ConsumerState<ExercisesLibraryScreen>
               showBack: true,
               trailing: Pressable(
                 onTap: () async {
-                  final name = await showTextInputSheet(context, title: 'New exercise', hint: 'e.g. Cable Y-Raise', action: 'Add');
+                  final name = await showTextInputSheet(
+                    context,
+                    title: 'New exercise',
+                    hint: 'e.g. Cable Y-Raise',
+                    action: 'Add',
+                  );
                   if (name == null) return;
                   final id = await ref.read(libraryRepoProvider).addExercise(name);
                   final created = (await ref.read(exercisesProvider.future)).where((e) => e.id == id).firstOrNull;
@@ -160,6 +176,32 @@ class _ExercisesLibraryScreenState extends ConsumerState<ExercisesLibraryScreen>
               ),
             ),
           ),
+          if (ref.watch(settingsProvider.select((s) => s.has(AppFeature.guide))))
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(GtSpace.lg, 0, GtSpace.lg, GtSpace.md),
+                child: GtCard(
+                  onTap: () => openGuideBrowser(context),
+                  padding: const EdgeInsets.fromLTRB(GtSpace.lg, GtSpace.md, GtSpace.md, GtSpace.md),
+                  child: Row(
+                    children: [
+                      Icon(GtIcons.guide, size: 20, color: context.accent),
+                      const SizedBox(width: GtSpace.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Browse the exercise guide', style: GtText.body.weight(600)),
+                            Text('800+ exercises with pictures. Add any to your list.', style: GtText.caption),
+                          ],
+                        ),
+                      ),
+                      const Icon(GtIcons.chevronRight, size: 14, color: GtColors.text3),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(GtSpace.lg, 0, GtSpace.lg, GtSpace.lg),
@@ -186,10 +228,7 @@ class _ExercisesLibraryScreenState extends ConsumerState<ExercisesLibraryScreen>
                   child: Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          e.name,
-                          style: GtText.body.colored(e.hidden ? GtColors.text3 : GtColors.text1),
-                        ),
+                        child: Text(e.name, style: GtText.body.colored(e.hidden ? GtColors.text3 : GtColors.text1)),
                       ),
                       Text(
                         e.hidden ? 'Hidden' : group ?? '',
@@ -286,7 +325,19 @@ class _ExerciseEditor extends ConsumerWidget {
                   ),
               ],
             ),
-            const SizedBox(height: GtSpace.xl),
+            if (ref.watch(settingsProvider.select((s) => s.has(AppFeature.guide)))) ...[
+              const SizedBox(height: GtSpace.xl),
+              DecoratedBox(
+                decoration: ShapeDecoration(color: GtColors.s2, shape: squircle(GtRadius.md)),
+                child: SettingsRow(
+                  icon: GtIcons.guide,
+                  title: 'Exercise guide',
+                  subtitle: e.guideId == null ? 'Not linked yet: tap to find it' : 'Pictures, muscles and steps',
+                  onTap: () => showExerciseGuide(context, e),
+                ),
+              ),
+            ],
+            const SizedBox(height: GtSpace.sm),
             DecoratedBox(
               decoration: ShapeDecoration(color: GtColors.s2, shape: squircle(GtRadius.md)),
               child: SettingsRow(

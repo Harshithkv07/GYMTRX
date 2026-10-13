@@ -58,12 +58,14 @@ class EntrySnapshot {
     required this.createdAt,
     required this.groupIds,
     required this.exercises,
+    this.startedAt,
   });
 
   final int dayKey;
   final String? note;
   final int? durationMin;
   final DateTime createdAt;
+  final DateTime? startedAt;
   final List<int> groupIds;
   final List<({int exerciseId, String? note, List<ExerciseSet> sets})> exercises;
 
@@ -72,6 +74,7 @@ class EntrySnapshot {
     note: d.session.note,
     durationMin: d.session.durationMin,
     createdAt: d.session.createdAt,
+    startedAt: d.session.startedAt,
     groupIds: [for (final g in d.groups) g.id],
     exercises: [for (final e in d.exercises) (exerciseId: e.exercise.id, note: e.row.note, sets: e.sets)],
   );

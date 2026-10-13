@@ -10,13 +10,17 @@ import '../../core/theme/typography.dart';
 import '../../core/utils/day_key.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
+import '../../data/database/app_database.dart';
 import '../../data/models/entry.dart';
 import '../../logic/insights.dart';
+import '../../logic/trends.dart';
+import '../../logic/features.dart';
 import '../../logic/providers/data_providers.dart';
 import '../../logic/providers/navigation_providers.dart';
 import '../../logic/providers/settings_provider.dart';
 import '../log/log_actions.dart';
 import '../log/weigh_in_sheet.dart';
+import '../settings/connection_settings.dart';
 import '../settings/settings_screen.dart';
 import '../shell/glass_nav_bar.dart';
 import '../widgets/controls.dart';
@@ -30,7 +34,8 @@ import 'exercise_screens.dart';
 import 'muscle_card.dart';
 import 'year_view.dart';
 
-/// Neutral numbers about what was logged. No streaks, no targets.
+/// Counts, the year view, muscle recency, body weight and exercise history.
+/// Streaks, goals and records live on the Progress tab.
 class InsightsScreen extends ConsumerStatefulWidget {
   const InsightsScreen({super.key});
 
@@ -47,6 +52,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
     final summaries = ref.watch(summariesProvider).value ?? const <EntrySummary>[];
     final groups = ref.watch(groupsProvider).value ?? const [];
     final weekStart = ref.watch(settingsProvider.select((s) => s.weekStart));
+    final showWeight = ref.watch(settingsProvider.select((s) => s.has(AppFeature.bodyWeight)));
     final days = {for (final e in summaries) e.dayKey};
     final stats = overview(days, today);
     final thisYear = DayKeys.year(today);
@@ -88,11 +94,14 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                 onYearChanged: (y) => setState(() => _year = y),
                 onMonthTap: (m) {
                   ref.read(calendarJumpProvider.notifier).request(m);
-                  ref.read(shellTabProvider.notifier).show(0);
+                  ref.read(shellTabProvider.notifier).show(ShellTab.calendar);
                 },
               ),
             ),
-            SectionHeader('Muscle groups', trailing: Text('LAST 30 DAYS', style: GtText.overline.colored(GtColors.text3))),
+            SectionHeader(
+              'Muscle groups',
+              trailing: Text('LAST 30 DAYS', style: GtText.overline.colored(GtColors.text3)),
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: GtSpace.lg),
               child: MuscleCard(
@@ -110,10 +119,18 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                 child: MonthlyBars(data: monthlyCounts(days, today)),
               ),
             ),
-            const SectionHeader('Body weight'),
-            const Padding(padding: EdgeInsets.symmetric(horizontal: GtSpace.lg), child: _BodyWeightCard()),
+            if (showWeight) ...[
+              const SectionHeader('Body weight'),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: GtSpace.lg),
+                child: _BodyWeightCard(),
+              ),
+            ],
             const SectionHeader('Exercises'),
-            const Padding(padding: EdgeInsets.symmetric(horizontal: GtSpace.lg), child: _ExercisesPreview()),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: GtSpace.lg),
+              child: _ExercisesPreview(),
+            ),
             SizedBox(height: padding.bottom + GlassNavBar.height + 48),
           ],
         ),
@@ -156,10 +173,7 @@ class _OverviewCard extends StatelessWidget {
           const SizedBox(height: GtSpace.lg),
           const Divider(),
           const SizedBox(height: GtSpace.md),
-          _Line(
-            label: 'Per week',
-            value: '${Fmt.number(stats.perWeek12, maxDecimals: 1)} · last 12 weeks',
-          ),
+          _Line(label: 'Per week', value: '${Fmt.number(stats.perWeek12, maxDecimals: 1)} · last 12 weeks'),
           const SizedBox(height: GtSpace.sm),
           _Line(
             label: 'Last session',
@@ -186,7 +200,9 @@ class _Line extends StatelessWidget {
       children: [
         Text(label, style: GtText.label.colored(GtColors.text2)),
         const SizedBox(width: GtSpace.lg),
-        Expanded(child: Text(value, textAlign: TextAlign.end, style: GtText.label)),
+        Expanded(
+          child: Text(value, textAlign: TextAlign.end, style: GtText.label),
+        ),
       ],
     );
   }
@@ -236,10 +252,23 @@ class _BodyWeightCardState extends ConsumerState<_BodyWeightCard> {
     }
 
     final from = _range.days == null ? 0 : DayKeys.addDays(today, -_range.days!);
-    final inRange = [for (final w in weights) if (w.dayKey >= from) w];
+    final inRange = [
+      for (final w in weights)
+        if (w.dayKey >= from) w,
+    ];
     final latest = weights.last;
     final first = inRange.isEmpty ? null : inRange.first;
     final delta = first == null || first.dayKey == latest.dayKey ? null : latest.weightKg - first.weightKg;
+    // Averaged over every weigh-in, then cut to the range, so the first days
+    // in view still average a full week.
+    final trend = [
+      for (final p in movingAverage([for (final w in weights) (w.dayKey, Units.toDisplay(w.weightKg, unit))]))
+        if (p.$1 >= from) p,
+    ];
+    final goal = (ref.watch(goalsProvider).value ?? const <Goal>[])
+        .where((g) => g.kind == GoalKind.bodyWeight)
+        .firstOrNull;
+    final toGo = goal == null ? null : (goal.targetKg - latest.weightKg).abs();
 
     return GtCard(
       padding: const EdgeInsets.fromLTRB(GtSpace.xl, GtSpace.xl, GtSpace.md, GtSpace.lg),
@@ -271,6 +300,16 @@ class _BodyWeightCardState extends ConsumerState<_BodyWeightCard> {
                           : '${delta >= 0 ? '+' : '−'}${Units.format(delta.abs(), unit, maxDecimals: 1)} since ${Fmt.dayMonth(first!.dayKey)}',
                       style: GtText.caption,
                     ),
+                    if (latest.source case final src?) ...[const SizedBox(height: 2), HealthSourceText(src)],
+                    if (goal != null && toGo != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        toGo < 0.05
+                            ? 'At your goal of ${Units.format(goal.targetKg, unit, maxDecimals: 1)}'
+                            : '${Units.format(toGo, unit, maxDecimals: 1)} to your goal',
+                        style: GtText.caption.colored(GtColors.gold),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -291,7 +330,20 @@ class _BodyWeightCardState extends ConsumerState<_BodyWeightCard> {
           WeightLine(
             points: [for (final w in inRange) (w.dayKey, Units.toDisplay(w.weightKg, unit))],
             unitLabel: unit.name,
+            trend: trend,
+            goal: goal == null ? null : Units.toDisplay(goal.targetKg, unit),
           ),
+          if (inRange.length >= 2)
+            Padding(
+              padding: const EdgeInsets.only(top: GtSpace.sm),
+              child: Row(
+                children: [
+                  const _DashKey(),
+                  const SizedBox(width: 6),
+                  Text('7-day average', style: GtText.caption),
+                ],
+              ),
+            ),
           const SizedBox(height: GtSpace.md),
           Padding(
             padding: const EdgeInsets.only(right: GtSpace.sm),
@@ -305,6 +357,21 @@ class _BodyWeightCardState extends ConsumerState<_BodyWeightCard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Legend swatch for the dashed average line.
+class _DashKey extends StatelessWidget {
+  const _DashKey();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < 3; i++)
+          Container(width: 4, height: 1.5, margin: const EdgeInsets.only(right: 2), color: GtColors.text2),
+      ],
     );
   }
 }
@@ -333,7 +400,8 @@ class _ExercisesPreview extends ConsumerWidget {
           for (final s in top) ExerciseStatRow(stat: s, today: today),
           if (stats.length > top.length)
             Pressable(
-              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ExerciseListScreen())),
+              onTap: () =>
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ExerciseListScreen())),
               scale: 0.98,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(GtSpace.lg, GtSpace.md, GtSpace.lg, GtSpace.sm),

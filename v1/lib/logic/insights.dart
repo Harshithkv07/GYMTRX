@@ -4,7 +4,8 @@ import '../core/utils/day_key.dart';
 import '../data/database/app_database.dart';
 import '../data/models/entry.dart';
 
-/// Plain numbers. Nothing here judges: no streaks, no goals, no "missed".
+/// Counts and recency. Streaks, goals and records live in streaks.dart,
+/// records.dart and program_plan.dart.
 @immutable
 class OverviewStats {
   const OverviewStats({

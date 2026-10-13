@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -24,9 +23,12 @@ import 'settings_widgets.dart';
 
 enum _ExportTarget { folder, share }
 
-/// Exports everything to one JSON file: saved to a folder or shared.
+BackupService _service(WidgetRef ref) =>
+    BackupService(ref.read(databaseProvider), photos: ref.read(photoStoreProvider));
+
+/// Exports everything, photos included, to one ZIP: saved to a folder or shared.
 Future<void> exportBackup(BuildContext context, WidgetRef ref) async {
-  final service = BackupService(ref.read(databaseProvider));
+  final service = _service(ref);
   final settings = ref.read(settingsProvider.notifier);
   final target = await showModalBottomSheet<_ExportTarget>(
     context: context,
@@ -63,20 +65,24 @@ Future<void> exportBackup(BuildContext context, WidgetRef ref) async {
   );
   if (target == null) return;
 
-  final json = await service.export(settings: settings.toJson());
-  final name = 'gymtrx-backup-${DateFormat('yyyy-MM-dd').format(DateTime.now())}.json';
-  final bytes = Uint8List.fromList(utf8.encode(json));
-
+  final name = 'gymtrx-backup-${DateFormat('yyyy-MM-dd').format(DateTime.now())}.zip';
   try {
+    Toasts.show('Preparing backup…', duration: const Duration(seconds: 30));
+    final json = await service.export(settings: settings.toJson());
+    final out = '${(await getTemporaryDirectory()).path}/$name';
+    await compute(BackupService.writeArchive, (json: json, photos: await service.photoFiles(), outPath: out));
+    Toasts.hide();
     switch (target) {
       case _ExportTarget.folder:
-        final uri = await FilePicker.saveFile(fileName: name, bytes: bytes, mimeType: 'application/json');
+        final uri = await FilePicker.saveFile(
+          fileName: name,
+          bytes: await File(out).readAsBytes(),
+          mimeType: 'application/zip',
+        );
         if (uri == null) return;
       case _ExportTarget.share:
-        final file = File('${(await getTemporaryDirectory()).path}/$name');
-        await file.writeAsBytes(bytes);
         final result = await SharePlus.instance.share(
-          ShareParams(files: [XFile(file.path, mimeType: 'application/json')], subject: 'GYMTRX backup'),
+          ShareParams(files: [XFile(out, mimeType: 'application/zip')], subject: 'GYMTRX backup'),
         );
         if (result.status == ShareResultStatus.dismissed) return;
     }
@@ -91,7 +97,7 @@ Future<void> exportBackup(BuildContext context, WidgetRef ref) async {
 
 /// Picks a backup file, shows what's in it and, if confirmed, replaces all data.
 Future<void> importBackup(BuildContext context, WidgetRef ref) async {
-  final service = BackupService(ref.read(databaseProvider));
+  final service = _service(ref);
   final settings = ref.read(settingsProvider.notifier);
 
   final List<PlatformFile> files;
@@ -105,8 +111,13 @@ Future<void> importBackup(BuildContext context, WidgetRef ref) async {
 
   final BackupData data;
   try {
-    final text = utf8.decode(await files.first.readAsBytes());
-    data = await compute(BackupService.parse, text);
+    // Copied to a temp file first: ZIPs with photos can be large.
+    final tmp = await getTemporaryDirectory();
+    final copy = File('${tmp.path}/import-backup');
+    final sink = copy.openWrite();
+    await sink.addStream(files.first.readAsByteStream());
+    await sink.close();
+    data = await compute(BackupService.parseFile, (path: copy.path, stagingDir: '${tmp.path}/import-photos'));
   } on FormatException catch (e) {
     Toasts.show(e.message);
     return;
@@ -136,10 +147,21 @@ Future<void> importBackup(BuildContext context, WidgetRef ref) async {
             const SizedBox(height: GtSpace.md),
             Text(range, style: GtText.body),
             const SizedBox(height: 4),
-            Text(Fmt.plural(data.weighInCount, 'weigh-in'), style: GtText.body.colored(GtColors.text2)),
+            Text(
+              [
+                Fmt.plural(data.weighInCount, 'weigh-in'),
+                if (data.goalCount case final n?) Fmt.plural(n, 'goal'),
+                if (data.photoCount case final n?) Fmt.plural(n, 'photo'),
+                if (data.programDays case final n? when n > 0) 'a weekly program',
+              ].join(' · '),
+              style: GtText.body.colored(GtColors.text2),
+            ),
             const SizedBox(height: GtSpace.lg),
             Text(
-              'Everything currently on this phone will be replaced by this backup.',
+              data.photoCount == null
+                  ? 'Everything currently on this phone will be replaced by this backup. '
+                        'Your progress photos stay as they are.'
+                  : 'Everything currently on this phone will be replaced by this backup.',
               style: GtText.caption,
             ),
             const SizedBox(height: GtSpace.xxl),

@@ -5,11 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:quick_actions/quick_actions.dart';
 
+import '../../data/services/notification_service.dart';
+import '../../logic/providers/data_providers.dart';
 import '../lock/lock_gate.dart';
 import '../log/log_actions.dart';
+import '../photos/photo_actions.dart';
 
 /// Opens the log sheet when the app is launched from the home-screen widget's
-/// ＋ or the "Log today" app shortcut. Waits for the lock to clear first.
+/// ＋, the "Log today" app shortcut or a reminder. Waits for the lock to
+/// clear first.
 class LaunchActions {
   LaunchActions(this.context, this.ref);
 
@@ -33,6 +37,14 @@ class LaunchActions {
 
     HomeWidget.initiallyLaunchedFromHomeWidget().then(_handleUri).catchError((_) {});
     _clicks = HomeWidget.widgetClicked.listen(_handleUri, onError: (_) {});
+
+    final notifications = NotificationService.instance;
+    notifications.init(onTap: _requestLog).then((_) async {
+      if (await notifications.launchedFromReminder()) _requestLog();
+    });
+
+    recoverLostPhoto(ref);
+    ref.read(photoRepoProvider).sweepOrphans().catchError((Object _) {});
   }
 
   void _handleUri(Uri? uri) {

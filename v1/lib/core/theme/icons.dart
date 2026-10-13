@@ -17,6 +17,8 @@ abstract final class GtIcons {
   static const calendarPlus = PhosphorIconsRegular.calendarPlus;
   static const insights = PhosphorIconsRegular.chartBar;
   static const insightsActive = PhosphorIconsFill.chartBar;
+  static const progress = PhosphorIconsRegular.trendUp;
+  static const progressActive = PhosphorIconsFill.trendUp;
 
   static const edit = PhosphorIconsRegular.pencilSimple;
   static const delete = PhosphorIconsRegular.trash;
@@ -46,4 +48,38 @@ abstract final class GtIcons {
   static const folder = PhosphorIconsRegular.folderSimple;
   static const eye = PhosphorIconsRegular.eye;
   static const eyeOff = PhosphorIconsRegular.eyeSlash;
+
+  static const flame = PhosphorIconsFill.flame;
+  static const trophy = PhosphorIconsFill.trophy;
+  static const medal = PhosphorIconsFill.medal;
+  static const target = PhosphorIconsRegular.target;
+  static const camera = PhosphorIconsRegular.camera;
+  static const images = PhosphorIconsRegular.images;
+  static const compare = PhosphorIconsRegular.squareSplitHorizontal;
+  static const bell = PhosphorIconsRegular.bell;
+  static const bellOff = PhosphorIconsRegular.bellSlash;
+  static const program = PhosphorIconsRegular.calendarDots;
+  static const missed = PhosphorIconsRegular.calendarX;
+  static const warning = PhosphorIconsRegular.warningCircle;
+
+  static const features = PhosphorIconsRegular.slidersHorizontal;
+  static const guide = PhosphorIconsRegular.bookOpenText;
+  static const play = PhosphorIconsRegular.youtubeLogo;
+  static const globe = PhosphorIconsRegular.globeSimple;
+  static const heart = PhosphorIconsRegular.heartbeat;
+  static const footprints = PhosphorIconsRegular.footprints;
+  static const sleep = PhosphorIconsRegular.moon;
+  static const watch = PhosphorIconsRegular.watch;
+  static const health = PhosphorIconsRegular.heart;
+  static const cloud = PhosphorIconsRegular.cloudArrowUp;
+  static const cloudCheck = PhosphorIconsRegular.cloudCheck;
+  static const google = PhosphorIconsRegular.googleLogo;
+  static const holiday = PhosphorIconsRegular.confetti;
+  static const ghost = PhosphorIconsRegular.ghost;
+  static const flip = PhosphorIconsRegular.cameraRotate;
+  static const sparkle = PhosphorIconsRegular.sparkle;
+  static const lightbulb = PhosphorIconsRegular.lightbulb;
+  static const link = PhosphorIconsRegular.link;
+  static const signOut = PhosphorIconsRegular.signOut;
+  static const time = PhosphorIconsRegular.clockCountdown;
 }

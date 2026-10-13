@@ -12,7 +12,9 @@ import '../../core/utils/haptics.dart';
 import '../../data/models/entry.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../logic/providers/data_providers.dart';
+import '../../logic/features.dart';
 import '../../logic/providers/settings_provider.dart';
+import '../../logic/records.dart';
 import '../widgets/autosave_field.dart';
 import '../widgets/controls.dart';
 import '../widgets/pressable.dart';
@@ -43,10 +45,15 @@ class _LogSheetState extends ConsumerState<LogSheet> {
   bool _scrolled = false;
   bool _closed = false;
 
+  /// Records that already existed when the sheet opened, so closing it can
+  /// say how many are new.
+  late final Future<Set<(int, PrMetric)>> _prsAtOpen;
+
   @override
   void initState() {
     super.initState();
     _repo = ref.read(sessionRepoProvider);
+    _prsAtOpen = _repo.loadSetRecords().then((rows) => computePrIndex(rows).hitKeys);
     _noteExisting(_day);
     _scroll.addListener(() {
       final scrolled = _scroll.offset > 2;
@@ -79,21 +86,41 @@ class _LogSheetState extends ConsumerState<LogSheet> {
     if (_closed) return;
     _closed = true;
     _flush.flushAll();
-    _finish(_repo, _day, Set.of(_touched), _existedAtOpen[_day] ?? true);
+    _finish(_repo, _day, Set.of(_touched), _existedAtOpen[_day] ?? true, _prsAtOpen);
   }
 
-  static Future<void> _finish(SessionRepository repo, int day, Set<int> touched, bool existed) async {
+  static Future<void> _finish(
+    SessionRepository repo,
+    int day,
+    Set<int> touched,
+    bool existed,
+    Future<Set<(int, PrMetric)>> prsAtOpen,
+  ) async {
     for (final d in touched) {
       if (d != day) await repo.pruneIfEmpty(d);
     }
     final pruned = await repo.pruneIfEmpty(day);
-    if (pruned || existed || !touched.contains(day)) return;
-    Haptics.medium();
-    Toasts.show(
-      'Logged ${Fmt.weekdayDayMonth(day)}',
-      actionLabel: 'Undo',
-      onAction: () => repo.deleteEntry(day),
-    );
+    if (pruned || !touched.contains(day)) return;
+
+    final before = await prsAtOpen;
+    final after = computePrIndex(await repo.loadSetRecords());
+    final newPrs = {
+      for (final h in after.hits)
+        if (!before.contains((h.setId, h.metric))) h.exerciseId,
+    }.length;
+    final prLabel = newPrs == 0 ? null : (newPrs == 1 ? '1 new PR' : '$newPrs new PRs');
+
+    if (!existed) {
+      Haptics.medium();
+      Toasts.show(
+        ['Logged ${Fmt.weekdayDayMonth(day)}', ?prLabel].join(' · '),
+        actionLabel: 'Undo',
+        onAction: () => repo.deleteEntry(day),
+      );
+    } else if (prLabel != null) {
+      Haptics.medium();
+      Toasts.show('$prLabel · ${Fmt.weekdayDayMonth(day)}');
+    }
   }
 
   @override
@@ -152,14 +179,12 @@ class _LogSheetState extends ConsumerState<LogSheet> {
                           Haptics.medium();
                           _write((r, d) => r.setGroups(d, ids));
                         },
+                        onProgram: ref.watch(settingsProvider.select((s) => s.has(AppFeature.program)))
+                            ? (plan) => _write((r, d) => r.applyProgramDay(d, plan))
+                            : null,
                       ),
                     ),
-                    ExerciseSection(
-                      key: ValueKey('exercises-$_day'),
-                      dayKey: _day,
-                      entry: entry,
-                      write: _write,
-                    ),
+                    ExerciseSection(key: ValueKey('exercises-$_day'), dayKey: _day, entry: entry, write: _write),
                     SliverToBoxAdapter(
                       child: NoteSection(
                         key: ValueKey('note-$_day'),
@@ -173,6 +198,9 @@ class _LogSheetState extends ConsumerState<LogSheet> {
                         dayKey: _day,
                         durationMin: entry?.session.durationMin,
                         onDuration: (min) => _write((r, d) => r.setDuration(d, min)),
+                        sessionId: entry?.session.id,
+                        startedAt: entry?.session.startedAt,
+                        onStartedAt: (at) => _write((r, d) => r.setStartedAt(d, at)),
                       ),
                     ),
                     SliverToBoxAdapter(child: SizedBox(height: bottomInset + bottomPadding + GtSpace.x4)),

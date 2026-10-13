@@ -5,9 +5,12 @@ import '../../core/motion/motion.dart';
 import '../../core/theme/icons.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../../logic/features.dart';
+import '../../logic/providers/settings_provider.dart';
 import '../log/day_picker_sheet.dart';
 import '../log/log_actions.dart';
 import '../log/weigh_in_sheet.dart';
+import '../photos/photo_actions.dart';
 import '../widgets/pressable.dart';
 import '../widgets/surface.dart';
 
@@ -20,7 +23,7 @@ Future<void> showPlusMenu(BuildContext context, WidgetRef ref, Rect anchor) asyn
       barrierColor: Colors.black.withValues(alpha: 0.45),
       transitionDuration: GtMotion.of(context, const Duration(milliseconds: 320)),
       reverseTransitionDuration: GtMotion.of(context, GtMotion.medium),
-      pageBuilder: (context, animation, _) => _PlusMenu(anchor: anchor),
+      pageBuilder: (context, animation, _) => _PlusMenu(anchor: anchor, features: ref.read(settingsProvider).features),
       transitionsBuilder: (context, animation, _, child) {
         final curved = CurvedAnimation(
           parent: animation,
@@ -45,15 +48,18 @@ Future<void> showPlusMenu(BuildContext context, WidgetRef ref, Rect anchor) asyn
       if (day != null && context.mounted) await openLogSheet(context, ref, dayKey: day);
     case _PlusAction.weighIn:
       await showWeighInSheet(context, ref, dayKey: logicalToday(ref));
+    case _PlusAction.photo:
+      await addProgressPhoto(context, ref);
   }
 }
 
-enum _PlusAction { otherDay, weighIn }
+enum _PlusAction { otherDay, weighIn, photo }
 
 class _PlusMenu extends StatelessWidget {
-  const _PlusMenu({required this.anchor});
+  const _PlusMenu({required this.anchor, required this.features});
 
   final Rect anchor;
+  final Set<AppFeature> features;
 
   @override
   Widget build(BuildContext context) {
@@ -79,11 +85,18 @@ class _PlusMenu extends StatelessWidget {
                       label: 'Log another day',
                       onTap: () => Navigator.pop(context, _PlusAction.otherDay),
                     ),
-                    _MenuItem(
-                      icon: GtIcons.weight,
-                      label: 'Add weigh-in',
-                      onTap: () => Navigator.pop(context, _PlusAction.weighIn),
-                    ),
+                    if (features.contains(AppFeature.bodyWeight))
+                      _MenuItem(
+                        icon: GtIcons.weight,
+                        label: 'Add weigh-in',
+                        onTap: () => Navigator.pop(context, _PlusAction.weighIn),
+                      ),
+                    if (features.contains(AppFeature.photos))
+                      _MenuItem(
+                        icon: GtIcons.camera,
+                        label: 'Progress photo',
+                        onTap: () => Navigator.pop(context, _PlusAction.photo),
+                      ),
                   ],
                 ),
               ),

@@ -17,13 +17,18 @@ import '../../data/database/app_database.dart';
 import '../../data/models/entry.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../logic/providers/data_providers.dart';
+import '../../logic/providers/progress_providers.dart';
+import '../../logic/features.dart';
 import '../../logic/providers/settings_provider.dart';
+import '../../logic/records.dart';
 import '../widgets/autosave_field.dart';
 import '../widgets/controls.dart';
+import '../widgets/pr_badge.dart';
 import '../widgets/pressable.dart';
 import '../widgets/toast.dart';
 import 'exercise_picker_sheet.dart';
 import 'log_sheet.dart';
+import '../guide/exercise_guide_sheet.dart';
 
 /// Optional exercises. Each is just a name until tapped; sets live inside.
 class ExerciseSection extends ConsumerStatefulWidget {
@@ -61,11 +66,7 @@ class _ExerciseSectionState extends ConsumerState<ExerciseSection> {
     widget.write((r, d) => r.removeExercise(e.row.id));
     final day = widget.dayKey;
     final repo = _repo;
-    Toasts.show(
-      'Removed ${e.exercise.name}',
-      actionLabel: 'Undo',
-      onAction: () => repo.restoreExercise(day, e),
-    );
+    Toasts.show('Removed ${e.exercise.name}', actionLabel: 'Undo', onAction: () => repo.restoreExercise(day, e));
   }
 
   void _reorder(List<ExerciseEntry> shown, int from, int to) {
@@ -83,7 +84,10 @@ class _ExerciseSectionState extends ConsumerState<ExerciseSection> {
     _removed.retainWhere(ids.contains);
     if (_pendingOrder != null && listEquals(_pendingOrder, ids)) _pendingOrder = null;
 
-    final shown = [for (final e in exercises) if (!_removed.contains(e.row.id)) e];
+    final shown = [
+      for (final e in exercises)
+        if (!_removed.contains(e.row.id)) e,
+    ];
     if (_pendingOrder case final order?) {
       int rank(ExerciseEntry e) {
         final i = order.indexOf(e.row.id);
@@ -321,10 +325,7 @@ String setSummary(Exercise exercise, List<ExerciseSet> sets, WeightUnit unit) {
     case ExerciseKind.cardio:
       final minutes = sets.map((s) => s.durationSec ?? 0).fold(0, (a, b) => a + b) ~/ 60;
       final km = sets.map((s) => s.distanceKm ?? 0).fold(0.0, (a, b) => a + b);
-      return [
-        if (minutes > 0) Fmt.duration(minutes),
-        if (km > 0) '${Fmt.number(km)} km',
-      ].join(' · ');
+      return [if (minutes > 0) Fmt.duration(minutes), if (km > 0) '${Fmt.number(km)} km'].join(' · ');
     case ExerciseKind.timed:
       final times = sets.map((s) => s.durationSec).nonNulls.map(Fmt.clock);
       return times.isEmpty ? count : '$count · ${times.join(', ')}';
@@ -353,6 +354,13 @@ class ExerciseCard extends ConsumerWidget {
     final summary = setSummary(entry.exercise, entry.sets, unit);
     final note = entry.row.note;
     final subtitle = [if (summary.isNotEmpty) summary, ?note].join(' · ');
+    // Null until records load, so badges that were already there don't pop.
+    // Off entirely when records aren't wanted.
+    final features = ref.watch(settingsProvider.select((s) => s.features));
+    final PrIndex? prs = features.contains(AppFeature.records) && ref.watch(setRecordsProvider).hasValue
+        ? ref.watch(prIndexProvider)
+        : null;
+    final hasPr = prs != null && entry.sets.any((s) => prs.isPrSet(s.id));
 
     return DecoratedBox(
       decoration: ShapeDecoration(color: GtColors.s2, shape: squircle(GtRadius.lg)),
@@ -370,7 +378,15 @@ class ExerciseCard extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(entry.exercise.name, style: GtText.titleSmall.sized(16)),
+                        Row(
+                          children: [
+                            Flexible(child: Text(entry.exercise.name, style: GtText.titleSmall.sized(16))),
+                            if (hasPr) ...[
+                              const SizedBox(width: GtSpace.sm),
+                              const Icon(GtIcons.trophy, size: 14, color: GtColors.gold),
+                            ],
+                          ],
+                        ),
                         AnimatedSize(
                           duration: GtMotion.of(context, GtMotion.medium),
                           curve: GtMotion.emphasized,
@@ -379,7 +395,12 @@ class ExerciseCard extends ConsumerWidget {
                               ? const SizedBox(width: double.infinity)
                               : Padding(
                                   padding: const EdgeInsets.only(top: 3),
-                                  child: Text(subtitle, style: GtText.caption, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  child: Text(
+                                    subtitle,
+                                    style: GtText.caption,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                         ),
                       ],
@@ -400,7 +421,15 @@ class ExerciseCard extends ConsumerWidget {
             curve: GtMotion.emphasized,
             alignment: Alignment.topCenter,
             child: expanded
-                ? _ExpandedBody(entry: entry, dayKey: dayKey, unit: unit, repo: repo)
+                ? _ExpandedBody(
+                    entry: entry,
+                    dayKey: dayKey,
+                    unit: unit,
+                    repo: repo,
+                    prs: prs,
+                    showLastTime: features.contains(AppFeature.suggestions),
+                    showGuide: features.contains(AppFeature.guide),
+                  )
                 : const SizedBox(width: double.infinity),
           ),
         ],
@@ -410,12 +439,27 @@ class ExerciseCard extends ConsumerWidget {
 }
 
 class _ExpandedBody extends StatefulWidget {
-  const _ExpandedBody({required this.entry, required this.dayKey, required this.unit, required this.repo});
+  const _ExpandedBody({
+    required this.entry,
+    required this.dayKey,
+    required this.unit,
+    required this.repo,
+    required this.prs,
+    required this.showLastTime,
+    required this.showGuide,
+  });
 
   final ExerciseEntry entry;
   final int dayKey;
   final WeightUnit unit;
   final SessionRepository repo;
+  final PrIndex? prs;
+
+  /// The "Last time · …" hint (a logging suggestion).
+  final bool showLastTime;
+
+  /// A button that opens the exercise guide.
+  final bool showGuide;
 
   @override
   State<_ExpandedBody> createState() => _ExpandedBodyState();
@@ -432,20 +476,21 @@ class _ExpandedBodyState extends State<_ExpandedBody> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FutureBuilder(
-            future: _last,
-            builder: (context, snap) {
-              final last = snap.data;
-              if (last == null) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: GtSpace.md, right: GtSpace.sm),
-                child: Text(
-                  'Last time · ${Fmt.dayMonth(last.dayKey)} · ${setSummary(e.exercise, last.sets, widget.unit)}',
-                  style: GtText.caption.colored(context.accent.withValues(alpha: 0.85)),
-                ),
-              );
-            },
-          ),
+          if (widget.showLastTime)
+            FutureBuilder(
+              future: _last,
+              builder: (context, snap) {
+                final last = snap.data;
+                if (last == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: GtSpace.md, right: GtSpace.sm),
+                  child: Text(
+                    'Last time · ${Fmt.dayMonth(last.dayKey)} · ${setSummary(e.exercise, last.sets, widget.unit)}',
+                    style: GtText.caption.colored(context.accent.withValues(alpha: 0.85)),
+                  ),
+                );
+              },
+            ),
           for (var i = 0; i < e.sets.length; i++)
             SetRow(
               key: ValueKey(e.sets[i].id),
@@ -454,6 +499,7 @@ class _ExpandedBodyState extends State<_ExpandedBody> {
               kind: e.exercise.kind,
               unit: widget.unit,
               repo: widget.repo,
+              isPr: widget.prs?.isPrSet(e.sets[i].id),
             ),
           Row(
             children: [
@@ -481,6 +527,17 @@ class _ExpandedBodyState extends State<_ExpandedBody> {
                   semanticLabel: '${e.exercise.name} note',
                 ),
               ),
+              if (widget.showGuide)
+                Pressable(
+                  onTap: () => showExerciseGuide(context, e.exercise),
+                  haptic: PressHaptic.selection,
+                  scale: 0.9,
+                  semanticLabel: 'How to do ${e.exercise.name}',
+                  child: Padding(
+                    padding: const EdgeInsets.all(GtSpace.sm),
+                    child: Icon(GtIcons.guide, size: 20, color: context.accent),
+                  ),
+                ),
             ],
           ),
         ],
@@ -498,6 +555,7 @@ class SetRow extends StatelessWidget {
     required this.kind,
     required this.unit,
     required this.repo,
+    this.isPr,
   });
 
   final int index;
@@ -505,6 +563,9 @@ class SetRow extends StatelessWidget {
   final ExerciseKind kind;
   final WeightUnit unit;
   final SessionRepository repo;
+
+  /// Null while records are loading.
+  final bool? isPr;
 
   Future<void> _update(ExerciseSetsCompanion values) => repo.updateSet(set.id, values);
 
@@ -567,6 +628,7 @@ class SetRow extends StatelessWidget {
           SizedBox(width: 22, child: Text('$index', style: GtText.monoSmall.colored(GtColors.text3))),
           for (final f in fields) ...[f, const SizedBox(width: GtSpace.sm)],
           const Spacer(),
+          PrBadge(isPr: isPr),
           Pressable(
             onTap: () => repo.removeSet(set.id),
             haptic: PressHaptic.selection,

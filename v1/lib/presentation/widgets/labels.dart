@@ -2,6 +2,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/database/app_database.dart';
 import '../../data/models/entry.dart';
+import '../../logic/program_plan.dart';
 
 /// "Chest · Triceps", ordered like the chip grid.
 String groupLabel(Iterable<int> ids, Map<int, MuscleGroup> byId) {
@@ -19,9 +20,23 @@ String entryMeta(EntrySummary e) {
 }
 
 /// Screen-reader label for a calendar day.
-String daySemantics(int dayKey, EntrySummary? e, Map<int, MuscleGroup> byId) {
-  final date = Fmt.fullDate(dayKey);
-  if (e == null) return date;
+String daySemantics(
+  int dayKey,
+  EntrySummary? e,
+  Map<int, MuscleGroup> byId, {
+  PlanStatus plan = PlanStatus.none,
+  String? holiday,
+  int? steps,
+}) {
+  final date = [Fmt.fullDate(dayKey), ?holiday].join(', ');
+  if (e == null) {
+    final base = switch (plan) {
+      PlanStatus.missed => '$date, missed program day',
+      PlanStatus.planned => '$date, planned',
+      _ => date,
+    };
+    return steps == null ? base : '$base, ${Fmt.plural(steps, 'step')}';
+  }
   final groups = groupLabel(e.groupIds, byId);
   return groups.isEmpty ? '$date, logged' : '$date, logged $groups';
 }

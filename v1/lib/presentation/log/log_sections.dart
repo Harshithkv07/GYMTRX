@@ -3,16 +3,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/motion/motion.dart';
 import '../../core/theme/icons.dart';
+import '../../core/theme/palette.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../../core/utils/day_key.dart';
+import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
+import '../../data/database/app_database.dart';
 import '../../data/models/entry.dart';
+import '../../data/models/progress.dart';
+import '../../logic/features.dart';
 import '../../logic/providers/data_providers.dart';
+import '../../logic/providers/health_providers.dart';
 import '../../logic/providers/settings_provider.dart';
+import '../settings/connection_settings.dart';
 import '../widgets/autosave_field.dart';
 import '../widgets/controls.dart';
 import '../widgets/gt_chip.dart';
 import '../widgets/labels.dart';
+import '../widgets/pressable.dart';
 import 'log_sheet.dart';
 
 const _sheetSectionPadding = EdgeInsets.fromLTRB(GtSpace.gutter, GtSpace.xxl, GtSpace.gutter, GtSpace.md);
@@ -26,6 +35,7 @@ class GroupsSection extends ConsumerStatefulWidget {
     required this.entry,
     required this.onToggle,
     required this.onCombo,
+    this.onProgram,
   });
 
   final int dayKey;
@@ -33,8 +43,62 @@ class GroupsSection extends ConsumerStatefulWidget {
   final Future<void> Function(int groupId, bool selected) onToggle;
   final void Function(List<int> groupIds) onCombo;
 
+  /// Fills the day from its weekly-program plan.
+  final void Function(ProgramDayPlan plan)? onProgram;
+
   @override
   ConsumerState<GroupsSection> createState() => _GroupsSectionState();
+}
+
+/// One tap fills the day's groups and exercises from the program.
+class _ProgramChip extends StatelessWidget {
+  const _ProgramChip({required this.plan, required this.byId, required this.onTap});
+
+  final ProgramDayPlan plan;
+  final Map<int, MuscleGroup> byId;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = groupLabel(plan.groupIds, byId);
+    final detail = [
+      if (groups.isNotEmpty && groups != plan.label) groups,
+      if (plan.exerciseIds.isNotEmpty) Fmt.plural(plan.exerciseIds.length, 'exercise'),
+    ].join(' · ');
+    return Pressable(
+      onTap: onTap,
+      haptic: PressHaptic.medium,
+      scale: 0.97,
+      semanticLabel: 'Fill from program: ${plan.label}',
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(GtSpace.lg, GtSpace.md, GtSpace.md, GtSpace.md),
+        decoration: ShapeDecoration(
+          color: context.gt.accentMuted,
+          shape: squircle(GtRadius.md, side: BorderSide(color: context.gt.accentSoft)),
+        ),
+        child: Row(
+          children: [
+            Icon(GtIcons.program, size: 20, color: context.accent),
+            const SizedBox(width: GtSpace.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(plan.label, style: GtText.body.weight(600).colored(context.accent)),
+                  if (detail.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(detail, style: GtText.caption, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: GtSpace.sm),
+            Text('FILL', style: GtText.overline.colored(context.accent)),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _GroupsSectionState extends ConsumerState<GroupsSection> {
@@ -49,14 +113,46 @@ class _GroupsSectionState extends ConsumerState<GroupsSection> {
     _optimistic.removeWhere((id, selected) => stored.contains(id) == selected);
     bool isSelected(int id) => _optimistic[id] ?? stored.contains(id);
 
-    final shown = [for (final g in groups) if (!g.hidden || stored.contains(g.id)) g];
+    final shown = [
+      for (final g in groups)
+        if (!g.hidden || stored.contains(g.id)) g,
+    ];
     final anySelected = shown.any((g) => isSelected(g.id));
     final summaries = ref.watch(summariesProvider).value ?? const <EntrySummary>[];
-    final combos = recentGroupCombos([for (final e in summaries) if (e.dayKey != widget.dayKey) e], byId);
+    final suggest = ref.watch(settingsProvider.select((s) => s.has(AppFeature.suggestions)));
+    final combos = suggest
+        ? recentGroupCombos([
+            for (final e in summaries)
+              if (e.dayKey != widget.dayKey) e,
+          ], byId)
+        : const <List<int>>[];
+    final plan = (ref.watch(programProvider).value ?? const {})[DayKeys.weekday(widget.dayKey)];
+    final showPlan = widget.onProgram != null && plan != null && (widget.entry?.exercises.isEmpty ?? true);
+    final logicalToday = ref.watch(logicalTodayProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        AnimatedSize(
+          duration: GtMotion.of(context, GtMotion.slow),
+          curve: GtMotion.emphasized,
+          alignment: Alignment.topCenter,
+          child: anySelected || !showPlan
+              ? const SizedBox(width: double.infinity)
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SectionHeader(
+                      widget.dayKey == logicalToday ? 'Today’s program' : '${Fmt.weekdayShort(widget.dayKey)} program',
+                      padding: _sheetSectionPadding,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: GtSpace.gutter),
+                      child: _ProgramChip(plan: plan, byId: byId, onTap: () => widget.onProgram!(plan)),
+                    ),
+                  ],
+                ),
+        ),
         AnimatedSize(
           duration: GtMotion.of(context, GtMotion.slow),
           curve: GtMotion.emphasized,
@@ -143,15 +239,49 @@ class NoteSection extends StatelessWidget {
 /// Duration and body weight. A weigh-in belongs to the day, not the session,
 /// so it never creates an entry on its own.
 class MoreSection extends ConsumerWidget {
-  const MoreSection({super.key, required this.dayKey, required this.durationMin, required this.onDuration});
+  const MoreSection({
+    super.key,
+    required this.dayKey,
+    required this.durationMin,
+    required this.onDuration,
+    this.sessionId,
+    this.startedAt,
+    this.onStartedAt,
+  });
 
   final int dayKey;
   final int? durationMin;
   final ValueChanged<int?> onDuration;
 
+  /// The session, once there is one: a start time needs it.
+  final int? sessionId;
+  final DateTime? startedAt;
+  final ValueChanged<DateTime?>? onStartedAt;
+
+  /// Asks for a start time on [dayKey]. Before the "day starts at" hour it
+  /// means the small hours after that day.
+  Future<void> _pickStart(BuildContext context, int dayStartHour) async {
+    final initial = startedAt == null ? const TimeOfDay(hour: 18, minute: 0) : TimeOfDay.fromDateTime(startedAt!);
+    final t = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      helpText: 'WHEN DID YOU START?',
+      initialEntryMode: TimePickerEntryMode.dial,
+    );
+    if (t == null) return;
+    var at = DayKeys.toDate(dayKey).add(Duration(hours: t.hour, minutes: t.minute));
+    if (t.hour < dayStartHour) at = at.add(const Duration(days: 1));
+    onStartedAt?.call(at);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(settingsProvider.select((s) => s.unit));
+    final showWeight = ref.watch(settingsProvider.select((s) => s.has(AppFeature.bodyWeight)));
+    // Start time only matters with a watch: it frames heart rate and calories.
+    final watch = ref.watch(settingsProvider.select((s) => s.watchHealth));
+    final dayStartHour = ref.watch(settingsProvider.select((s) => s.dayStartHour));
+    final health = watch && sessionId != null ? ref.watch(sessionHealthProvider(sessionId!)).value : null;
     final weights = ref.watch(bodyWeightsProvider).value ?? const [];
     final weightRepo = ref.read(bodyWeightRepoProvider);
     final todays = weights.where((w) => w.dayKey == dayKey).firstOrNull;
@@ -184,31 +314,70 @@ class MoreSection extends ConsumerWidget {
                     onSave: (t) => onDuration(int.tryParse(t)),
                   ),
                 ),
-                const Divider(height: 1, indent: GtSpace.lg, endIndent: GtSpace.lg),
-                _MoreRow(
-                  icon: GtIcons.weight,
-                  label: 'Body weight',
-                  suffix: unit.name,
-                  field: AutosaveField(
-                    value: todays == null ? '' : Units.format(todays.weightKg, unit, withUnit: false, maxDecimals: 1),
-                    hint: lastKnown == null ? '–' : Units.format(lastKnown.weightKg, unit, withUnit: false, maxDecimals: 1),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: decimalInput,
-                    textAlign: TextAlign.end,
-                    style: GtText.mono.sized(16),
-                    fillColor: GtColors.s3,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: GtSpace.md, vertical: 10),
-                    semanticLabel: 'Body weight',
-                    onSave: (t) {
-                      final v = parseNumber(t);
-                      if (v == null || v <= 0) {
-                        weightRepo.remove(dayKey);
-                      } else {
-                        weightRepo.upsert(dayKey, Units.toKg(v, unit));
-                      }
-                    },
+                if (watch && sessionId != null) ...[
+                  const Divider(height: 1, indent: GtSpace.lg, endIndent: GtSpace.lg),
+                  Pressable(
+                    onTap: () => _pickStart(context, dayStartHour),
+                    onLongPress: startedAt == null ? null : () => onStartedAt?.call(null),
+                    haptic: PressHaptic.selection,
+                    scale: 0.98,
+                    semanticLabel: startedAt == null ? 'Start time, not set' : 'Start time ${Fmt.time(startedAt!)}',
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(GtSpace.lg, GtSpace.md, GtSpace.lg, GtSpace.md),
+                      child: Row(
+                        children: [
+                          const Icon(GtIcons.time, size: 20, color: GtColors.text2),
+                          const SizedBox(width: GtSpace.md),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Start time', style: GtText.body),
+                                if (health?.source case final src?)
+                                  HealthSourceText(src)
+                                else
+                                  Text('For heart rate from your watch', style: GtText.caption),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            startedAt == null ? 'Set' : Fmt.time(startedAt!),
+                            style: GtText.mono.sized(16).colored(startedAt == null ? context.accent : GtColors.text1),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+                ],
+                if (showWeight) ...[
+                  const Divider(height: 1, indent: GtSpace.lg, endIndent: GtSpace.lg),
+                  _MoreRow(
+                    icon: GtIcons.weight,
+                    label: 'Body weight',
+                    suffix: unit.name,
+                    field: AutosaveField(
+                      value: todays == null ? '' : Units.format(todays.weightKg, unit, withUnit: false, maxDecimals: 1),
+                      hint: lastKnown == null
+                          ? '–'
+                          : Units.format(lastKnown.weightKg, unit, withUnit: false, maxDecimals: 1),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: decimalInput,
+                      textAlign: TextAlign.end,
+                      style: GtText.mono.sized(16),
+                      fillColor: GtColors.s3,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: GtSpace.md, vertical: 10),
+                      semanticLabel: 'Body weight',
+                      onSave: (t) {
+                        final v = parseNumber(t);
+                        if (v == null || v <= 0) {
+                          weightRepo.remove(dayKey);
+                        } else {
+                          weightRepo.upsert(dayKey, Units.toKg(v, unit));
+                        }
+                      },
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

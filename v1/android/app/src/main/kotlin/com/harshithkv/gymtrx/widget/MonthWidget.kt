@@ -89,8 +89,8 @@ private data class WidgetData(
     companion object {
         fun from(prefs: SharedPreferences) = WidgetData(
             days = prefs.getString("days", "").orEmpty().split(',').mapNotNull { it.toIntOrNull() }.toSet(),
-            accent = runCatching { Color(android.graphics.Color.parseColor(prefs.getString("accent", "#D4FF3F"))) }
-                .getOrDefault(Color(0xFFD4FF3F)),
+            accent = runCatching { Color(android.graphics.Color.parseColor(prefs.getString("accent", "#A8C8A0"))) }
+                .getOrDefault(Color(0xFFA8C8A0)),
             weekStart = prefs.getString("weekStart", "1")?.toIntOrNull() ?: 1,
             lastLabel = prefs.getString("lastLabel", null),
         )

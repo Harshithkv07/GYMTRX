@@ -1,12 +1,35 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Exercise guide downloads and Google Drive backup. Nothing else goes online. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Holidays from calendars already on the phone (read only). -->
+    <uses-permission android:name="android.permission.READ_CALENDAR"/>
+    <!-- The custom camera for progress photos. It never records sound. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>
+    <!-- Health Connect. Without a watch only READ_STEPS is ever requested. -->
+    <uses-permission android:name="android.permission.health.READ_STEPS"/>
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE"/>
+    <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED"/>
+    <uses-permission android:name="android.permission.health.READ_SLEEP"/>
+    <uses-permission android:name="android.permission.health.READ_EXERCISE"/>
+    <uses-permission android:name="android.permission.health.WRITE_EXERCISE"/>
+    <uses-permission android:name="android.permission.health.READ_WEIGHT"/>
+    <uses-permission android:name="android.permission.health.WRITE_WEIGHT"/>
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY"/>
     <!-- Fingerprint / face unlock for the optional app lock. -->
     <uses-permission
         android:name="android.permission.USE_BIOMETRIC"/>
+    <!-- Reminders survive a reboot. (POST_NOTIFICATIONS comes from the plugin.) -->
+    <uses-permission
+        android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:label="GYMTRX"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true">
         <activity
             android:name=".MainActivity"
@@ -39,6 +62,27 @@
                     android:name="es.antonborri.home_widget.action.LAUNCH"/>
             </intent-filter>
         </activity>
+        <!-- Health Connect shows this when someone asks how GYMTRX uses their
+             data (Android 13 and below), and won't offer permissions without it. -->
+        <activity
+            android:name=".HealthRationaleActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+            </intent-filter>
+        </activity>
+        <!-- The same, for Android 14 and later. -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".HealthRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
+            </intent-filter>
+        </activity-alias>
         <!-- Home-screen widget (Jetpack Glance via home_widget). -->
         <receiver
             android:name=".widget.MonthWidgetReceiver"
@@ -51,6 +95,20 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/month_widget_info"/>
+        </receiver>
+        <!-- Scheduled reminders (flutter_local_notifications). -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"/>
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
         </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
@@ -69,6 +127,17 @@
                 android:name="android.intent.action.PROCESS_TEXT"/>
             <data
                 android:mimeType="text/plain"/>
+        </intent>
+        <!-- Health Connect itself, and the apps that share with it (to show
+             their names, e.g. "from Samsung Health"). -->
+        <package android:name="com.google.android.apps.healthdata"/>
+        <intent>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+        </intent>
+        <!-- "Watch form on YouTube" in the exercise guide. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

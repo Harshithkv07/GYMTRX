@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
 import 'core/licenses.dart';
 import 'data/database/app_database.dart';
+import 'data/services/photo_store.dart';
 import 'logic/providers/data_providers.dart';
 import 'logic/providers/settings_provider.dart';
 
@@ -20,10 +21,15 @@ Future<void> main() async {
 
   final prefs = await SharedPreferencesWithCache.create(cacheOptions: const SharedPreferencesWithCacheOptions());
   final db = AppDatabase();
+  final photos = await PhotoStore.open();
 
   runApp(
     ProviderScope(
-      overrides: [prefsProvider.overrideWithValue(prefs), databaseProvider.overrideWithValue(db)],
+      overrides: [
+        prefsProvider.overrideWithValue(prefs),
+        databaseProvider.overrideWithValue(db),
+        photoStoreProvider.overrideWithValue(photos),
+      ],
       child: const GymtrxApp(),
     ),
   );

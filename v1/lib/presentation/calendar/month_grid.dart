@@ -9,6 +9,7 @@ import '../../core/utils/day_key.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/haptics.dart';
 import '../../data/models/entry.dart';
+import '../../logic/program_plan.dart';
 import '../widgets/pressable.dart';
 
 /// Geometry shared by the grid and the pager (which animates between heights).
@@ -43,6 +44,10 @@ class MonthGrid extends StatelessWidget {
     this.selectedDay,
     this.highlightGroupId,
     this.semanticsFor,
+    this.planOf,
+    this.holidays = const {},
+    this.stepsOf,
+    this.canPeek,
   });
 
   final YearMonth month;
@@ -61,6 +66,19 @@ class MonthGrid extends StatelessWidget {
   /// Filter: gym days without this group are shown muted.
   final int? highlightGroupId;
   final String Function(int dayKey)? semanticsFor;
+
+  /// Weekly-program status per day: planned days get a dot, missed ones red.
+  final PlanStatus Function(int dayKey)? planOf;
+
+  /// Holiday names by day: those days get a small mark.
+  final Map<int, String> holidays;
+
+  /// Steps for a day without a session (from Health Connect), if known.
+  final int? Function(int dayKey)? stepsOf;
+
+  /// Days without an entry that can be long-pressed too (they have steps,
+  /// sleep or a holiday to show).
+  final bool Function(int dayKey)? canPeek;
 
   @override
   Widget build(BuildContext context) {
@@ -109,11 +127,19 @@ class MonthGrid extends StatelessWidget {
                               isToday: key == today,
                               isFuture: key > today,
                               selected: key == selectedDay,
-                              muted: highlightGroupId != null && entry != null && !entry.groupIds.contains(highlightGroupId),
+                              muted:
+                                  highlightGroupId != null &&
+                                  entry != null &&
+                                  !entry.groupIds.contains(highlightGroupId),
                               size: rowH - 8,
                               semanticLabel: semanticsFor?.call(key),
+                              plan: planOf?.call(key) ?? PlanStatus.none,
+                              holiday: holidays.containsKey(key),
+                              steps: entry == null && key <= today ? stepsOf?.call(key) : null,
                               onTap: key > today ? null : () => onDayTap(key),
-                              onPeek: entry == null || onDayPeek == null ? null : (rect) => onDayPeek!(key, rect),
+                              onPeek: onDayPeek == null || (entry == null && !(canPeek?.call(key) ?? false))
+                                  ? null
+                                  : (rect) => onDayPeek!(key, rect),
                               onPeekEnd: onPeekEnd,
                             );
                           },
@@ -145,6 +171,9 @@ class DayCell extends StatefulWidget {
     this.onPeek,
     this.onPeekEnd,
     this.semanticLabel,
+    this.plan = PlanStatus.none,
+    this.holiday = false,
+    this.steps,
   });
 
   final int dayKey;
@@ -158,6 +187,11 @@ class DayCell extends StatefulWidget {
   final void Function(Rect cell)? onPeek;
   final VoidCallback? onPeekEnd;
   final String? semanticLabel;
+  final PlanStatus plan;
+  final bool holiday;
+
+  /// Shown small under the date on rest days.
+  final int? steps;
 
   @override
   State<DayCell> createState() => _DayCellState();
@@ -186,6 +220,10 @@ class _DayCellState extends State<DayCell> with SingleTickerProviderStateMixin {
     final accent = context.accent;
     final logged = widget.entry != null;
     final filled = logged && !widget.muted;
+    final missed = !logged && widget.plan == PlanStatus.missed;
+    final planned = !logged && widget.plan == PlanStatus.planned;
+    // Only where there's room, and never on top of the planned-day dot.
+    final steps = !logged && !planned && widget.size >= 34 ? widget.steps : null;
 
     final Color fill;
     final Color textColor;
@@ -195,6 +233,9 @@ class _DayCellState extends State<DayCell> with SingleTickerProviderStateMixin {
     } else if (logged) {
       fill = GtColors.s3;
       textColor = GtColors.text2;
+    } else if (missed) {
+      fill = GtColors.missedMuted;
+      textColor = GtColors.missed;
     } else {
       fill = Colors.transparent;
       textColor = widget.isFuture
@@ -227,9 +268,61 @@ class _DayCellState extends State<DayCell> with SingleTickerProviderStateMixin {
           curve: GtMotion.emphasized,
           decoration: ShapeDecoration(color: fill, shape: squircle(widget.size * 0.28)),
           alignment: Alignment.center,
-          child: Text(
-            '${DayKeys.day(widget.dayKey)}',
-            style: GtText.mono.sized(14).weight(filled || widget.isToday ? 600 : 500).colored(textColor),
+          child: Stack(
+            fit: StackFit.expand,
+            alignment: Alignment.center,
+            children: [
+              AnimatedAlign(
+                duration: GtMotion.of(context, GtMotion.medium),
+                curve: GtMotion.emphasized,
+                alignment: steps == null ? Alignment.center : const Alignment(0, -0.38),
+                child: Text(
+                  '${DayKeys.day(widget.dayKey)}',
+                  style: GtText.mono
+                      .sized(14)
+                      .weight(filled || missed || widget.isToday ? 600 : 500)
+                      .colored(textColor),
+                ),
+              ),
+              if (steps != null)
+                Positioned(
+                  bottom: widget.size * 0.1,
+                  left: 0,
+                  right: 0,
+                  child: Text(
+                    Fmt.compact(steps),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: GtText.monoSmall.sized(8.5).colored(missed ? GtColors.missed : GtColors.text3),
+                  ),
+                ),
+              if (widget.holiday)
+                Positioned(
+                  top: widget.size * 0.1,
+                  right: widget.size * 0.1,
+                  child: Container(
+                    width: 5,
+                    height: 5,
+                    decoration: ShapeDecoration(
+                      color: filled ? GtColors.onAccent.withValues(alpha: 0.5) : GtColors.text2,
+                      shape: const StarBorder(points: 4, innerRadiusRatio: 0.45),
+                    ),
+                  ),
+                ),
+              if (planned)
+                Positioned(
+                  bottom: widget.size * 0.07,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      width: 4,
+                      height: 4,
+                      decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
